@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Editor
+*.swp
+*~
+.vscode/
+.idea/
+
+# PoC artifacts
+ideas/*/03-poc/*/node_modules/
+ideas/*/03-poc/*/.env
+ideas/*/03-poc/*/dist/
+ideas/*/03-poc/*/build/
+ideas/*/03-poc/*/__pycache__/
+ideas/*/03-poc/*/.venv/

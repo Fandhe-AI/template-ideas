@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '📋 Ideas Repository | スキル: /new-idea, /advance-phase, /idea-status, /idea-summary | 詳細: docs/guide/getting-started.md'"
+          }
+        ]
+      }
+    ]
+  }
+}
