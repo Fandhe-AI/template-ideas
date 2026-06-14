@@ -84,7 +84,7 @@ jobs:
           # 起動された場合でも常に main を checkout し、他ブランチのツリー混入を防ぐ。
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.SKILLS_PAT || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.SUBMODULE_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         # actions/setup-node v6.4.0。skills-update が使う npx skills のため node を固定する。
@@ -96,7 +96,7 @@ jobs:
         # Fandhe-AI/actions はタグ未作成のため最新コミット SHA に固定する。
         uses: Fandhe-AI/actions/skills-update@c80ff94f229f86ba9e08723948c4dee0e1fb66bf
         with:
-          token: ${{ secrets.SKILLS_PAT || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.SUBMODULE_PAT || secrets.GITHUB_TOKEN }}
           base-branch: main
           branch-prefix: chore/skills-update
           commit-message: 'chore: エージェントスキルを最新に更新'
