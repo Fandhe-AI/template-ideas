@@ -35,8 +35,7 @@ Phase 4 のビヘイビアが振る舞いの唯一の正（SSOT）。仕様変�
 ```
 ideas/
 ├── docs/
-│   ├── guide/            # 使い方ガイド（index.md が目次）
-│   └── sandbox-tls.md    # sandbox での GitHub 操作ガイド
+│   └── guide/            # 使い方ガイド（index.md が目次）
 ├── _templates/           # フェーズテンプレート (01〜06, 07 は任意)
 ├── ideas/<name>/         # 各アイデア（kebab-case）
 ├── .agents/skills/       # upstream 由来の汎用スキル (skills-lock.json で同期)
@@ -147,7 +146,7 @@ main（Claude Code 本体）はフェーズ作業を抱え込まず、対象パ�
 | ドキュメント | `update-docs` |
 | 上流貢献 | `contribute-skill`, `sync-skills-lock` |
 
-`/contribute-skill` と `/sync-skills-lock` の使い方は [`docs/guide/skill-development.md`](./docs/guide/skill-development.md) を、sandbox 環境での GitHub 操作は [`docs/sandbox-tls.md`](./docs/sandbox-tls.md) を参照。
+`/contribute-skill` と `/sync-skills-lock` の使い方は [`docs/guide/skill-development.md`](./docs/guide/skill-development.md) を参照。
 
 ## Fandhe-AI エコシステム
 

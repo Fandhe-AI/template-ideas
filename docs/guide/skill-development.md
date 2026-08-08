@@ -127,7 +127,6 @@ upstream 由来スキル（`.agents/skills/` 配下）を改修し、上流に P
 - `skills-lock.json` の `source` が `Fandhe-AI/` で始まらない場合はエラーで中止（安全弁）
 - セキュリティチェック（OWASP Top 10 等）を必ず通す
 - 作業ディレクトリは `/tmp/claude-<uid>/contribute-<name>-<ts>/`
-- sandbox 環境では `GIT_SSL_NO_VERIFY=1` を併用
 
 詳細は [`.agents/skills/contribute-skill/SKILL.md`](../../.agents/skills/contribute-skill/SKILL.md)（[upstream 原本](https://github.com/Fandhe-AI/agent-cli-skills/blob/main/skills/contribute-skill/SKILL.md)）を参照。
 
@@ -146,6 +145,5 @@ upstream 由来スキル（`.agents/skills/` 配下）を改修し、上流に P
 
 ## 注意事項
 
-- sandbox 環境での GitHub 操作は [`../sandbox-tls.md`](../sandbox-tls.md) を参照してください（`GIT_SSL_NO_VERIFY=1` が必要なコマンド分類、使用例、注意事項）。`.claude/settings.local.json` の特殊許可の意図記録は [`../../.claude/settings.local.README.md`](../../.claude/settings.local.README.md) を参照。
 - Conventional Commits 形式を厳守します（`type(scope): subject`）。詳細は [`../../.claude/rules/convention.md`](../../.claude/rules/convention.md) を参照。
 - 新規スキル（upstream にまだマージされていないもの）は `skills-lock.json` に `computedHash` を書き込みません。マージ後に `/sync-skills-lock` で反映します。
