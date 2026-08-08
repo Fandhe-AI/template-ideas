@@ -107,7 +107,7 @@ ideas/
 
 本リポジトリの `.agents/skills/` 配下のスキルは [Fandhe-AI/agent-cli-skills](https://github.com/Fandhe-AI/agent-cli-skills) を upstream とし、ルート直下の `skills-lock.json` で出所と SHA256 を記録しています。
 
-スキルを改修したら `/contribute-skill <skill-name>` で upstream へ PR を投げ、マージ後に `/sync-skills-lock` でハッシュを同期します。新しい upstream スキルを取り込むには `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` を実行します。詳しい流れは [スキル開発ガイド](docs/guide/skill-development.md) を参照してください。
+スキルを改修したら `/contribute-skill <skill-name>` で upstream へ PR を投げ、マージ後に `/sync-skills-lock` でハッシュを同期します（この 2 スキルは未同梱のため、利用時に upstream から取り込みます）。新しい upstream スキルを取り込むには `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` を実行します。詳しい流れは [スキル開発ガイド](docs/guide/skill-development.md) を参照してください。
 
 ## 詳細ドキュメント
 

@@ -25,7 +25,7 @@ Ideas Repository のスキルを改修したり、新しいスキルを追加し
 - `implement-issue`, `implement-review`, `implement-review-pr`
 - `project-add-items`, `project-archive-done`, `project-create-issues`, `project-init`, `project-sync-issues`, `project-update-items`, `project-view-status`
 - `update-docs`
-- `contribute-skill`, `sync-skills-lock`（上流貢献用）
+- `contribute-skill`, `sync-skills-lock`（上流貢献用。本リポジトリには未同梱のため、利用する場合は `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` で取り込む）
 
 これらの更新は upstream (`Fandhe-AI/agent-cli-skills`) と双方向に同期します。
 
@@ -128,7 +128,7 @@ upstream 由来スキル（`.agents/skills/` 配下）を改修し、上流に P
 - セキュリティチェック（OWASP Top 10 等）を必ず通す
 - 作業ディレクトリは `/tmp/claude-<uid>/contribute-<name>-<ts>/`
 
-詳細は [`.agents/skills/contribute-skill/SKILL.md`](../../.agents/skills/contribute-skill/SKILL.md)（[upstream 原本](https://github.com/Fandhe-AI/agent-cli-skills/blob/main/skills/contribute-skill/SKILL.md)）を参照。
+詳細は [upstream 原本](https://github.com/Fandhe-AI/agent-cli-skills/blob/main/skills/contribute-skill/SKILL.md) を参照。
 
 ### `/sync-skills-lock` の使い方
 
@@ -141,7 +141,7 @@ upstream 由来スキル（`.agents/skills/` 配下）を改修し、上流に P
 - 差分を表示し、ユーザー承認後に `skills-lock.json` を更新
 - **ルートの `skills-lock.json` のみが対象**（submodule 配下は対象外）
 
-詳細は [`.agents/skills/sync-skills-lock/SKILL.md`](../../.agents/skills/sync-skills-lock/SKILL.md)（[upstream 原本](https://github.com/Fandhe-AI/agent-cli-skills/blob/main/skills/sync-skills-lock/SKILL.md)）を参照。
+詳細は [upstream 原本](https://github.com/Fandhe-AI/agent-cli-skills/blob/main/skills/sync-skills-lock/SKILL.md) を参照。
 
 ## 注意事項
 
