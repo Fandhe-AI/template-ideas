@@ -3,17 +3,21 @@
 
 # Claude Code local settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Editor
 *.swp
 *~
-.vscode/
 .idea/
 
+# ローカル作業ファイル（計画・issue-tree 状態など）
+_/
+
 # PoC artifacts
-ideas/*/03-poc/*/node_modules/
-ideas/*/03-poc/*/.env
-ideas/*/03-poc/*/dist/
-ideas/*/03-poc/*/build/
-ideas/*/03-poc/*/__pycache__/
-ideas/*/03-poc/*/.venv/
+node_modules/
+.env*
+dist/
+build/
+__pycache__/
+.venv/
+target/

@@ -1,6 +1,10 @@
 ---
 name: update-docs
-description: コード変更に基づいて CLAUDE.md やスキル一覧を更新する。
+description: >
+  前回更新コミット (_/.last-update-docs で追跡) からの差分をもとに CLAUDE.md のスキル一覧・リポジトリ構造ツリーを更新する。
+  新スキル追加時、.claude/agents/ や .claude/rules/ の変更時、「ドキュメント更新して」「CLAUDE.md を更新して」などで使用。
+  コード内コメント・ドキュメンテーションコメントの補強を依頼された場合にも参照する指針を含む。
+model: haiku
 ---
 
 # update-docs
@@ -37,14 +41,34 @@ git diff <commit_hash>..HEAD --stat
 
 #### Current Skills の更新
 
-`skills/` 配下のディレクトリ一覧を取得し、`CLAUDE.md` の `## Current Skills` セクションを更新する。
+スキルを2系統に分けて列挙し、`CLAUDE.md` の `## Current Skills` セクションと「リポジトリ管理スキル」セクションをそれぞれ更新する。
+
+**系統 A: `skills/` 配下の配布可能スキル（カウント対象）**
 
 ```bash
 ls -d skills/*/SKILL.md | sed 's|skills/||;s|/SKILL.md||' | sort
 ```
 
-- スキル数のカウントを更新: `## Current Skills (N)`
+- スキル数のカウントを更新: `## Current Skills (N)`（N は系統 A のみ）
 - カンマ区切りのスキル名一覧を更新
+
+**系統 B: `.claude/skills/` / `.agents/skills/` 配下のスキル（カウント対象外）**
+
+```bash
+# -L で symlink を追従し、.claude/skills/（symlink）と .agents/skills/（実体）の
+# 両レイアウトを網羅する。SKILL.md を持つディレクトリ名を抽出し重複排除する。
+# （npx skills add は .agents/skills/ に実体を置き .claude/skills/ から symlink する）
+find -L .claude/skills .agents/skills -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
+  | sed -E 's#.*/##' | sort -u
+```
+
+`find -L` で symlink を追従するため、`.claude/skills/` 配下が symlink でも、また
+スキル実体が `.agents/skills/` 側にある場合でも取りこぼさない（`-type d` 単独だと
+symlink エントリを除外してしまうため `-L` が必須）。
+
+- `CLAUDE.md` の「リポジトリ管理スキル（.claude/skills/ に配置）」セクションを更新する
+- 系統 B のスキルは `## Current Skills (N)` のカウント N に含めない
+- セクションが存在しない場合は新規作成する
 
 #### Repository Structure の更新
 
@@ -80,8 +104,49 @@ commit_date=2026-03-21T10:00:00+09:00
 
 更新したファイルの一覧と変更内容を表示する。
 
+## 検証
+
+更新後、以下で完了を確認する。
+
+```bash
+# CLAUDE.md のスキル数が実ディレクトリ数と一致しているか確認
+grep "^## Current Skills" CLAUDE.md
+ls -d skills/*/SKILL.md | wc -l
+```
+
+- `## Current Skills (N)` の N がカウントと一致すること
+- スキル名一覧に追加・削除したスキルが反映されていること
+- `_/.last-update-docs` が最新コミットの hash で更新されていること
+
 ## 注意事項
 
 - `CLAUDE.md` のみが更新対象。個別スキルの `SKILL.md` や `references/` は対象外
 - 自動生成ファイルは更新対象外
 - `_/.last-update-docs` が `.gitignore` に追加されているか確認する
+- **`.claude/skills/` の実ディレクトリ**: `find .claude/skills -maxdepth 1 -mindepth 1 -type d` で列挙し、`## Current Skills (N)` のカウントには含めない。「リポジトリ管理スキル」セクションに別管理する
+- **symlink vs 実ディレクトリ**: `find -type d` はシンボリックリンクを除くため `github-docs` 等は自動除外される
+
+## コード内コメントの観点（任意）
+
+コメント補強を依頼された場合に適用する指針。CLAUDE.md 同期とは独立した作業として実施する。
+
+### 基本方針
+
+コメントは「何をするか」ではなく「このパッケージ・サービスにおける対象の役割」を記述する。
+後続の読み手（Claude を含む）は渡された情報からしか判断できないため、以下の観点を明示する。
+
+- **呼び出し元からの観点** — このシンボルが呼び出し元にとって何を提供するか
+- **呼び出し先からの観点** — このシンボルが依存している外部サービス・モジュールとの関係
+- **他ファイル・他サービスとの文脈** — 同じプロセスや隣接サービスにおける位置づけ
+
+### 記述のポイント
+
+- 実装の詳細（アルゴリズムの手順）ではなく、**役割・責務・境界**を述べる
+- 変数名・型から自明な情報は繰り返さない。読み手が別ファイルを開かなくても文脈を把握できる情報を補う
+- 公開 API（エクスポートされる関数・型・定数）は必ずコメントを付ける。非公開シンボルは複雑な場合のみ
+- サービス間通信やイベント駆動の箇所では、どのイベント・エンドポイントと接続しているかを明記する
+
+### 詳細規約の参照先
+
+コメントスタイルの詳細（形式・言語・長さ・禁止事項）は対象リポジトリの `.claude/rules/code-comment-style.md` に従う。
+当該ファイルが存在しない場合は、対象リポジトリの既存コメントスタイルに合わせる。

@@ -10,7 +10,7 @@ user-invocable: true
 ## 手順
 
 1. `ideas/$ARGUMENTS/` 配下の全ドキュメントを読み込む
-   - README.md, 01-brainstorm.md, 02-poc-plan.md, 03-poc/**/README.md, 04-requirements.md, 05-tasks.md, 06-roadmap.md
+   - README.md, 01-brainstorm.md, 02-poc-plan.md, 03-poc/**/README.md, 04-behavior/*.md（レガシー形式では 04-requirements.md）, 05-tasks.md, 06-roadmap.md, spec.md
    - 存在するファイルのみ読み込む
 
 2. 以下の構造でサマリーを出力する:
@@ -26,8 +26,9 @@ user-invocable: true
 - 検証した項目と結果
 - 主要な知見
 
-### 要件サマリー（Phase 4 以降の場合）
-- Must要件の一覧
+### ビヘイビアサマリー（Phase 4 以降の場合）
+- 新形式: ファイル構成（画面・API・横断）と確定／検討中の件数、Must ビヘイビアの要点
+- レガシー形式: Must要件の一覧
 - 主要な非機能要件
 
 ### 実装計画サマリー（Phase 5 以降の場合）
