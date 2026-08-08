@@ -134,7 +134,7 @@ main（Claude Code 本体）はフェーズ作業を抱え込まず、対象パ�
 | `/idea-summary <idea-name>` | アイデアの全体サマリーを生成 |
 | `/generate-spec <idea-name>` | `04-behavior/` から仕様書 `spec.md` を自動生成 |
 
-### Upstream 由来の汎用スキル (`.agents/skills/` 配下、15 個)
+### Upstream 由来の汎用スキル (`.agents/skills/` 配下、8 個)
 
 `skills-lock.json` で `Fandhe-AI/agent-cli-skills` と同期している共通スキル群。
 
@@ -142,7 +142,6 @@ main（Claude Code 本体）はフェーズ作業を抱え込まず、対象パ�
 |---------|-------|
 | 共通 | `create-commit`, `create-issue`, `create-plan`, `create-pr` |
 | 実装系 | `implement-issue`, `implement-review`, `implement-review-pr` |
-| プロジェクト管理 | `project-init`, `project-add-items`, `project-archive-done`, `project-create-issues`, `project-sync-issues`, `project-update-items`, `project-view-status` |
 | ドキュメント | `update-docs` |
 上流貢献用の `contribute-skill` / `sync-skills-lock` は未同梱。利用する場合は `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` で取り込む（使い方は [`docs/guide/skill-development.md`](./docs/guide/skill-development.md) を参照）。
 

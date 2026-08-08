@@ -23,7 +23,6 @@ Ideas Repository のスキルを改修したり、新しいスキルを追加し
 
 - `create-commit`, `create-issue`, `create-plan`, `create-pr`
 - `implement-issue`, `implement-review`, `implement-review-pr`
-- `project-add-items`, `project-archive-done`, `project-create-issues`, `project-init`, `project-sync-issues`, `project-update-items`, `project-view-status`
 - `update-docs`
 - `contribute-skill`, `sync-skills-lock`（上流貢献用。本リポジトリには未同梱のため、利用する場合は `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` で取り込む）
 

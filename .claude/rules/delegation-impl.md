@@ -49,9 +49,9 @@ phase エージェントへの委譲後、main は以下を確認してから次
 
 - `/create-issue-tree` — Phase 分割した Issue ツリーを起票
 - `/implement-issue-tree` — 配下サブ Issue を worktree で並列実装
-
-上記 2 スキルは本テンプレートには未同梱の upstream スキル。利用する場合は `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` で取り込む。
 - `project-add-items` / `project-create-issues` — プロジェクトボードへの展開
+
+上記のスキルは本テンプレートには未同梱の upstream スキル。利用する場合は `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` で取り込む。
 
 ## 委譲しないケース（main が直接行う）
 
