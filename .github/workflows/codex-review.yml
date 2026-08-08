@@ -1,0 +1,34 @@
+# public リポジトリ向け wrapper テンプレート。
+# 呼び出し側リポジトリの .github/workflows/codex-review.yml へコピーし、<SHA> を差し替える。
+# 導入手順は Fandhe-AI/actions の codex-review/README.md「セットアップ」を参照。
+name: Codex PR review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+# reusable workflow のトップレベル concurrency は機能しないため呼び出し側で設定する
+concurrency:
+  group: codex-review-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  codex-review:
+    # <SHA> は Fandhe-AI/actions のコミット SHA で固定する（@main 不可）
+    uses: Fandhe-AI/actions/.github/workflows/codex-review.yml@cb482ae59a8a7b94496aa72a71404dc115b783d8 # main
+    permissions:
+      contents: read
+      pull-requests: write
+    # codex ジョブは runner-label（既定値 codex）のまま、public リポジトリでも self-hosted な
+    # codex 専用 runner を使う。これは組織 runner 方針で認められた唯一の例外であり、
+    # fork PR では workflow 側が fail-closed で実行を拒否する。ここでは指定しない。
+    with:
+      # post-feedback-runner-label の既定値は self-hosted であり、public リポジトリでは
+      # 組織 runner 方針（public は GitHub ホステッド）に反する。資格情報に触れない
+      # コメント投稿ジョブなので、必ず ubuntu-latest を明示的に渡すこと。
+      # 詳細は docs/runner-policy.md「3. 例外: codex-review」を参照。
+      post-feedback-runner-label: ubuntu-latest
