@@ -1,5 +1,7 @@
 # 詳細要件定義: <アイデア名>
 
+<!-- レガシー形式（04-requirements.md を持つ既存アイデア）専用のテンプレートです。新規アイデアの Phase 4 は _templates/04-behavior/ を使用してください（.claude/rules/phase-gate.md の形式判定を参照）。レガシーの Phase 5 は _templates/legacy/05-tasks.md を使用します -->
+
 ## 概要
 <!-- アイデアの最終的な定義（PoC結果を反映） -->
 
@@ -52,3 +54,11 @@
 - **結果**: 妥当 / 要縮小 / 要追加PoC
 - **理由**:
 - **日付**: YYYY-MM-DD
+
+## 次のアクション
+
+判定結果に応じて:
+- **妥当 (Go)**: `/advance-phase <idea-name>` で次フェーズ (タスク分解) へ進む。
+- **要縮小**: 本ファイルの「除外事項」にスコープ外項目を移動し、要件を再整理してから `/advance-phase` を実行する。
+- **要追加PoC**: `README.md` を「🔁 再検討中」に更新し、Phase 2 または 3 へ戻って追加の PoC 項目を立てる。
+- **No-Go**: `README.md` ステータスを「❌ 中止」に更新し、要因を `01-brainstorm.md` に追記する。

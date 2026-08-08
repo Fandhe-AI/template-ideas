@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "count=$(ls -1d ideas/*/ 2>/dev/null | wc -l | tr -d ' '); printf '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"📋 Ideas Repository | 進行中アイデア: %s 件 | スキル: /new-idea, /advance-phase, /idea-status, /idea-summary | 詳細: docs/guide/index.md\"}}' \"${count}\""
+          }
+        ]
+      }
+    ]
+  }
+}

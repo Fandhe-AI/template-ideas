@@ -36,3 +36,10 @@
 - **理由**:
 - **条件**:（Conditional Go の場合）
 - **日付**: YYYY-MM-DD
+
+## 次のアクション
+
+判定結果に応じて:
+- **Go / Conditional Go**: `/advance-phase <idea-name>` で次フェーズ (ビヘイビア定義) へ進む。Conditional Go の場合は条件を `04-behavior/README.md` 冒頭に明記する。
+- **No-Go**: `README.md` ステータスを「❌ 中止」に更新し、要因を `01-brainstorm.md` に追記する。必要なら Phase 1 へ戻り再検討する。
+- **保留 / 再検討**: `README.md` を「🔁 再検討中」に更新し、未解決の疑問点と期限を明記する。

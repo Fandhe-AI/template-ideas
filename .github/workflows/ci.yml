@@ -1,0 +1,38 @@
+# ベースライン CI。Fandhe-AI/actions の rust-base-ci reusable workflow を
+# SHA 固定で呼び出す薄い wrapper。
+#
+# 本リポジトリ（テンプレート）のルートに Cargo.toml は無い。rust-base-ci は
+# Cargo.toml 不在時に各ステップを skip して success のまま終了する自己修復方式のため、
+# CI は落ちずに導入できる。テンプレートから作成したリポジトリで Rust の PoC を
+# ルート workspace に置いた時点から fmt / clippy / test / deny（deny.toml も必要）が
+# 実効化する。
+#
+# 本リポジトリは public のため、組織 runner 方針（Fandhe-AI/actions
+# docs/runner-policy.md）に従い GitHub ホステッド runner を明示指定する。
+# テンプレートから作成したリポジトリを private で運用する場合は
+# runner-label を self-hosted に変更すること。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# reusable workflow のトップレベル concurrency は機能しないため呼び出し側で設定する。
+# fork PR・同名ブランチの誤キャンセルを避けるため PR 番号をグループキーに含める
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-ci:
+    # reusable workflow のジョブは呼び出し側が付与した以上の権限を持てないため、
+    # 共通側が必要とする contents: read をここでも付与する
+    permissions:
+      contents: read
+    uses: Fandhe-AI/actions/.github/workflows/rust-base-ci.yml@5982e2f502a19effc36a7b161660b5a4ea17b886 # main
+    with:
+      runner-label: ubuntu-latest

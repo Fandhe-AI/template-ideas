@@ -61,7 +61,7 @@ kebab-case でアイデア名を指定します（例: `ai-code-review-tool`）�
 ```
 claude --agent=brainstorm
 claude --agent=poc-planner
-claude --agent=requirements
+claude --agent=behavior
 claude --agent=task-decomposer
 claude --agent=roadmap
 ```
