@@ -33,6 +33,6 @@ jobs:
     # 共通側が必要とする contents: read をここでも付与する
     permissions:
       contents: read
-    uses: Fandhe-AI/actions/.github/workflows/rust-base-ci.yml@5982e2f502a19effc36a7b161660b5a4ea17b886 # main
+    uses: Fandhe-AI/actions/.github/workflows/rust-base-ci.yml@a9da308407866a42ade5be047c63e80b65c64fca # main
     with:
       runner-label: ubuntu-latest
