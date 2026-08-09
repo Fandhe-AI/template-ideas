@@ -22,8 +22,8 @@ Ideas Repository のスキルを改修したり、新しいスキルを追加し
 `.agents/skills/` にディレクトリ実体を持ち、`.claude/skills/` からは symlink される汎用スキルです。`skills-lock.json` で upstream とハッシュ同期しています。
 
 - `create-commit`, `create-issue`, `create-plan`, `create-pr`
-- `implement-issue`, `implement-review`, `implement-review-pr`
-- `update-docs`
+- `implement-issue`, `implement-issue-tree`, `implement-review`, `implement-review-pr`
+- `update-docs`, `comment-code`
 - `contribute-skill`, `sync-skills-lock`（上流貢献用。本リポジトリには未同梱のため、利用する場合は `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` で取り込む）
 
 これらの更新は upstream (`Fandhe-AI/agent-cli-skills`) と双方向に同期します。

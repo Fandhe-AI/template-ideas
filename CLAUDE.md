@@ -45,7 +45,8 @@ ideas/
     │   ├── research/     # 調査系 (reference-researcher / sub-investigator)
     │   └── quality/      # 品質系 (doc-reviewer / gate-checker)
     ├── rules/            # 共通ルール (japanese / phase-gate / convention / delegation / delegation-impl / document-quality)
-    └── skills/           # ワークフロースキル (5 個) + upstream への symlink
+    ├── skills/           # ワークフロースキル (5 個) + upstream への symlink
+    └── workflows/        # implement-issue-tree.js (.agents/skills/ への相対 symlink)
 ```
 
 ## 規約
@@ -134,15 +135,17 @@ main（Claude Code 本体）はフェーズ作業を抱え込まず、対象パ�
 | `/idea-summary <idea-name>` | アイデアの全体サマリーを生成 |
 | `/generate-spec <idea-name>` | `04-behavior/` から仕様書 `spec.md` を自動生成 |
 
-### Upstream 由来の汎用スキル (`.agents/skills/` 配下、8 個)
+### Upstream 由来の汎用スキル (`.agents/skills/` 配下、10 個)
 
 `skills-lock.json` で `Fandhe-AI/agent-cli-skills` と同期している共通スキル群。
 
 | カテゴリ | スキル |
 |---------|-------|
 | 共通 | `create-commit`, `create-issue`, `create-plan`, `create-pr` |
-| 実装系 | `implement-issue`, `implement-review`, `implement-review-pr` |
-| ドキュメント | `update-docs` |
+| 実装系 | `implement-issue`, `implement-issue-tree`, `implement-review`, `implement-review-pr` |
+| ドキュメント | `update-docs`, `comment-code` |
+
+`implement-issue-tree`（イシューツリーの並列自動実装）は `.claude/workflows/implement-issue-tree.js`（`.agents/skills/implement-issue-tree/script/` への相対 symlink）を workflow スクリプトとして使用する。前提（`gh auth` / sub_issues API 疎通）と使い方はスキルの `SKILL.md` を参照。
 上流貢献用の `contribute-skill` / `sync-skills-lock` は未同梱。利用する場合は `npx skills add Fandhe-AI/agent-cli-skills --skill <skill-name>` で取り込む（使い方は [`docs/guide/skill-development.md`](./docs/guide/skill-development.md) を参照）。
 
 ## Fandhe-AI エコシステム
