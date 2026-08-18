@@ -58,7 +58,7 @@ concurrency:
 jobs:
   update-external:
     # Fandhe-AI/actions はタグ未公開のため main 追従の最新コミット SHA に固定する
-    uses: Fandhe-AI/actions/.github/workflows/update-external.yml@0655187f7c71aafbe94098f7613d2cea1876e29f # main
+    uses: Fandhe-AI/actions/.github/workflows/update-external.yml@latest
     permissions:
       contents: read
     with:
