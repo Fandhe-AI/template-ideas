@@ -6,14 +6,24 @@
 // ループ先頭で減算済みのため、その回が最後の枠だと while 条件が false になり救済ラウンドが
 // 一度も走らないまま 'unresolved-comments' の blocked 終端に落ちていた。
 //
-// 対象バグ3（本 Issue #248 の本題）: 上記の救済ラウンドを判定する rescueRoundPending の消費
+// 対象バグ3（Issue #248 の本題）: 上記の救済ラウンドを判定する rescueRoundPending の消費
 // タイミングが monitor 結果の直後だったため、同じラウンドで merge-exec が返す reason
 // （head-moved / checks-not-green / merge-failed）を classifyMergeExecDispatch が monitor
 // 判定より後で 'timeout' へ写像するケースを見逃していた。pending は既に false に落ちた後
 // なので、この merge-exec 由来の timeout は救済判定を受けられず failed 終端（halt カウント・
 // 再開対象外）になる。修正は判定地点を「予約 → 今ラウンドの active フラグへ移送」した上で
 // ループ退出後の単一 choke point（break / continue / while 条件 false のすべてが通る）へ移し、
-// merge-exec 写像後の lastState でも救済ラウンドの blocked 終端に到達できるようにした。
+// merge-exec 写像後の lastState でも救済ラウンドの判定を受けられるようにした（#248 時点では
+// 判定を受けた結果は一律 blocked だった）。
+//
+// 契約更新（agent-cli-skills#365）: #248 は「判定地点（choke point）」の修正であり、#365 は
+// 「判定内容（timeout の出所別分類）」の修正である。choke point 自体（ループ退出後・単一地点で
+// 1 回だけ評価する構造）は #365 でも維持する。#248 時点の reconcileRescueRoundState は救済ラウンド
+// 中の timeout を出所を問わず一律 blocked（halt 非カウント）へ分類していたが、これだと恒常的な
+// merge-exec 失敗（特に merge-failed）が halt カウントに一切算入されず同じ救済経路へ再入し続け、
+// halt 防御を迂回する（#365 の P1）。#365 は timeout の出所を第 3 引数 timeoutExecReason
+// （''=monitor 由来 / 非空=merge-exec 由来のリテラル reason）で区別し、monitor 由来のみ blocked、
+// merge-exec 由来は既定の failed（halt カウント対象）へ進むよう契約を変更した。
 //
 // 検証の二層構造:
 //   1. 判定ロジック（planForcedThreadRescan）の純粋関数テスト。ここで枠確保と 1 回限りラッチの
@@ -194,35 +204,61 @@ test('ラッチ変数は while ループの外で 1 回だけ宣言される', (
 // 抜けて終端 status だけを品質ブロックへ分類する設計に改めた。
 // ---------------------------------------------------------------------------
 
-test('reconcileRescueRoundState: 救済ラウンドの timeout は即終端 + 品質ブロック分類を指示する', () => {
-  const r = mod.reconcileRescueRoundState('timeout', true)
+test('reconcileRescueRoundState: 救済ラウンド中・monitor 由来の timeout（reason 空）は即終端 + 品質ブロック分類を指示する', () => {
+  const r = mod.reconcileRescueRoundState('timeout', true, '')
   assert.equal(r.terminate, true, 'fix 分岐へ流さずループを抜けなければ blocked 終端に到達しない')
   assert.equal(r.qualityBlock, true, 'timeout のまま分類すると failed になり halt にカウントされる')
   assert.equal(r.rescuePending, false)
+  assert.equal(r.timeoutOrigin, 'monitor')
+})
+
+test('reconcileRescueRoundState: 救済ラウンド中・merge-exec 由来の timeout（reason 非空）は品質ブロックへ分類しない（#365）', () => {
+  // #365 の本題: merge-exec 由来の timeout 写像を品質ブロックへ含めると、恒常的な merge 失敗が
+  // halt カウントに算入されず同じ救済経路へ再入し続ける（halt 防御の迂回）。
+  for (const reason of ['head-moved', 'checks-not-green', 'merge-failed']) {
+    const r = mod.reconcileRescueRoundState('timeout', true, reason)
+    assert.equal(r.terminate, false, `${reason}: 品質ブロックへ終端させてはならない（既定の failed へ進ませる）`)
+    assert.equal(r.qualityBlock, false, `${reason}: qualityBlock を立てると halt カウントが迂回される`)
+    assert.equal(r.rescuePending, false)
+    assert.equal(r.timeoutOrigin, 'merge-exec', `${reason}: 出所は merge-exec と判定されなければならない`)
+  }
+})
+
+test('reconcileRescueRoundState: 想定外の非空 reason も merge-exec 由来（fail-closed）として扱う', () => {
+  // 分岐条件のリテラル以外が渡っても、品質ブロックへ倒れる方向（halt 防御を弱める側）の
+  // フォールバックにしない。非空はすべて merge-exec 由来として扱う既定の安全側。
+  const r = mod.reconcileRescueRoundState('timeout', true, 'unexpected-value')
+  assert.equal(r.terminate, false)
+  assert.equal(r.qualityBlock, false)
+  assert.equal(r.timeoutOrigin, 'merge-exec')
 })
 
 test('reconcileRescueRoundState: lastState を書き換えるフィールドを返さない', () => {
   // 'unresolved-comments' への書き換えは fix 起動状態への変更となり #246 の欠陥を再現する。
-  const r = mod.reconcileRescueRoundState('timeout', true)
+  const r = mod.reconcileRescueRoundState('timeout', true, '')
   assert.equal(Object.hasOwn(r, 'lastState'), false, 'state の書き換えを戻り値に含めてはならない')
 })
 
 test('reconcileRescueRoundState: 観測が成立した結果では何もしない', () => {
   // 救済の目的はスレッド内容の取り直し。observation が成立した以上その判定と通常分岐を尊重する。
   for (const state of ['ready', 'needs-fix', 'blocked', 'unresolved-comments', 'invalid-monitor-result']) {
-    const r = mod.reconcileRescueRoundState(state, true)
+    const r = mod.reconcileRescueRoundState(state, true, '')
     assert.equal(r.terminate, false, `${state} で終端させてはならない`)
     assert.equal(r.qualityBlock, false)
     assert.equal(r.rescuePending, false)
+    assert.equal(r.timeoutOrigin, 'none')
   }
 })
 
-test('reconcileRescueRoundState: 救済ラウンド外の timeout は失敗のまま残す', () => {
+test('reconcileRescueRoundState: 救済ラウンド外の timeout は失敗のまま残す（reason の有無によらない）', () => {
   // 残枠があった回の timeout まで品質ブロックへ写像すると、実際の監視失敗を隠してしまう。
-  const r = mod.reconcileRescueRoundState('timeout', false)
-  assert.equal(r.terminate, false)
-  assert.equal(r.qualityBlock, false)
-  assert.equal(r.rescuePending, false)
+  for (const reason of ['', 'merge-failed']) {
+    const r = mod.reconcileRescueRoundState('timeout', false, reason)
+    assert.equal(r.terminate, false)
+    assert.equal(r.qualityBlock, false)
+    assert.equal(r.rescuePending, false)
+    assert.equal(r.timeoutOrigin, 'none')
+  }
 })
 
 test('救済ラウンドの pending は granted のときだけ立つ', () => {
@@ -236,30 +272,47 @@ test('救済ラウンドの pending は granted のときだけ立つ', () => {
   assert.match(branchBody, /if \(rescan\.granted\) rescueRoundPending = true/)
 })
 
-// brace 走査で監視ループの閉じ位置を求める。コメント文字列（「即座にループを抜けて」等）へ
-// 依存すると、コメント編集だけで回帰検知が黙って無効化されるため、構造そのものを走査する。
-function findMatchingBraceEnd(text, openBraceIndex) {
-  let depth = 0
-  for (let i = openBraceIndex; i < text.length; i++) {
-    if (text[i] === '{') depth++
-    else if (text[i] === '}') {
-      depth--
-      if (depth === 0) return i
-    }
-  }
-  return -1
+// 監視ループの範囲は実装側に置いたマーカー対で切り出す（Issue #336）。
+//
+// 経緯: 当初は波括弧の深さを数えて閉じ位置を求めていたが、文字列・テンプレートリテラル・
+// コメント内の片側波括弧で境界がずれるため字句走査（手書きレキサー）へ置き換えた。しかし
+// レキサーは正規表現/除算の判別・ASI・Unicode 識別子・ラベル付き break といった JS 文法の
+// 全域を相手にすることになり、テストヘルパーとしては見合わない大きさと不確かさを抱えた。
+// 実装スクリプトは自分たちが所有しているため、境界そのものをソースへ書き込むほうが確実で
+// 小さい。既に同じファイルで __IMPLEMENT_ISSUE_TREE_DRIVER_START__ が同じ方式を採っている。
+//
+// 「コメントに依存する」点は当初の問題（「即座にループを抜けて」等の説明文＝**偶発的な散文**へ
+// の依存。文面を書き換えるだけで回帰検知が黙って無効化される）とは別物である。マーカーは
+// 単一目的の固定文字列で、出現回数を下のテストが 1 回に固定し、消えれば読み込み時点で throw
+// する。黙って無効化される経路が無い。
+const LOOP_START_MARKER = ['__MERGE', 'MONITOR', 'LOOP', 'START__'].join('_')
+const LOOP_END_MARKER = ['__MERGE', 'MONITOR', 'LOOP', 'END__'].join('_')
+
+const loopStartMarkerIndex = driverPart.indexOf(LOOP_START_MARKER)
+const loopEndMarkerIndex = driverPart.indexOf(LOOP_END_MARKER)
+if (loopStartMarkerIndex === -1 || loopEndMarkerIndex === -1) {
+  throw new Error(`監視ループの境界マーカー（${LOOP_START_MARKER} / ${LOOP_END_MARKER}）が実装スクリプトに存在しない（削除・改名は回帰テストを無効化する）`)
 }
 
 const WHILE_HEADER = 'while (!merged && monitorsLeft > 0) {'
-const whileIndex = driverPart.indexOf(WHILE_HEADER)
-if (whileIndex === -1) {
-  throw new Error('監視ループの while が見つからない（構造変更時は本テストも更新すること）')
+const whileIndex = driverPart.indexOf(WHILE_HEADER, loopStartMarkerIndex)
+if (whileIndex === -1 || whileIndex > loopEndMarkerIndex) {
+  throw new Error('監視ループの while が開始マーカーと終了マーカーの間に見つからない（構造変更時はマーカーも一緒に動かすこと）')
 }
 const loopOpenBraceIndex = whileIndex + WHILE_HEADER.length - 1
-const loopEndIndex = findMatchingBraceEnd(driverPart, loopOpenBraceIndex)
-if (loopEndIndex === -1) {
-  throw new Error('監視ループの閉じ括弧が見つからない（brace 不整合）')
+// 終了マーカーは閉じ括弧の直後の行に置く規約のため、マーカーから後ろ向きに最初の `}` が
+// ループの閉じ括弧そのものになる。波括弧の対応付けを一切行わないため、文字列・コメント・
+// テンプレートリテラル内の片側波括弧の影響を原理的に受けない。
+const loopEndIndex = driverPart.lastIndexOf('}', loopEndMarkerIndex)
+if (loopEndIndex === -1 || loopEndIndex < loopOpenBraceIndex) {
+  throw new Error('監視ループの閉じ括弧が終了マーカーの直前に見つからない（マーカー配置の規約違反）')
 }
+
+test('監視ループの境界マーカーは実装スクリプト内にそれぞれ 1 か所のみ存在する', () => {
+  // 複数あると切り出し位置が曖昧になる。driverPart ではなくスクリプト全体（source）で数える。
+  assert.equal(source.split(LOOP_START_MARKER).length - 1, 1, `${LOOP_START_MARKER} は 1 か所だけでなければならない`)
+  assert.equal(source.split(LOOP_END_MARKER).length - 1, 1, `${LOOP_END_MARKER} は 1 か所だけでなければならない`)
+})
 
 test('救済ラウンドの終端分類はループ退出後・単一地点で 1 回だけ評価される', () => {
   // reconcileRescueRoundState の呼び出しは driverPart 内でちょうど 1 回。呼び出し形（引数名）を
@@ -269,8 +322,8 @@ test('救済ラウンドの終端分類はループ退出後・単一地点で 1
   // 「呼び出しは 1 か所だけ」を引数の綴りに関係なく検証する。
   const allCalls = driverPart.match(/reconcileRescueRoundState\(/g) ?? []
   assert.equal(allCalls.length, 1, '救済ラウンドの判定呼び出しは driverPart 内で 1 か所だけでなければならない')
-  const callIndex = driverPart.indexOf('reconcileRescueRoundState(lastState, rescueRoundActive)')
-  assert.notEqual(callIndex, -1, '判定呼び出しの引数形（lastState, rescueRoundActive）が見つからない')
+  const callIndex = driverPart.indexOf('reconcileRescueRoundState(lastState, rescueRoundActive, roundTimeoutExecReason)')
+  assert.notEqual(callIndex, -1, '判定呼び出しの引数形（lastState, rescueRoundActive, roundTimeoutExecReason）が見つからない（#365 で 3 引数化）')
   // ループの外（閉じ括弧より後）かつ terminalStatus の算出より前でなければならない
   // （merge-exec 由来の timeout 写像まで確定した lastState を見て判定する必要があるため）。
   assert.ok(callIndex > loopEndIndex, '判定はループ退出後（choke point）でなければならない')
@@ -302,6 +355,33 @@ test('救済ラウンドの予約はラウンド先頭（monitorsLeft-- の直�
   assert.ok(handoffClearIndex < monitorCallIndex, '移送は monitor 呼び出しより前（ラウンド先頭）でなければならない')
 })
 
+test('roundTimeoutExecReason はラウンド先頭（monitor 呼び出しより前）でリセットされる（#365）', () => {
+  // リセットを落とすと前ラウンドの merge-exec 由来 reason が今ラウンドの monitor 由来 timeout へ
+  // 漏れ、blocked が静かに failed へ化ける（計画の (c) 負のコントロール）。
+  // ループ外の宣言（let roundTimeoutExecReason = ''）と区別するため、ループ本体内から探す。
+  const resetIndex = driverPart.indexOf("roundTimeoutExecReason = ''", loopOpenBraceIndex)
+  assert.notEqual(resetIndex, -1, 'ラウンド先頭のリセット代入が見つからない')
+  const handoffClearIndex = driverPart.indexOf('rescueRoundPending = false')
+  assert.notEqual(handoffClearIndex, -1)
+  assert.ok(resetIndex > handoffClearIndex, 'リセットは救済ラウンド予約の移送より後（ラウンド先頭の一部）でなければならない')
+  const monitorCallIndex = driverPart.indexOf('const m = await agent(monitorPrompt(', loopOpenBraceIndex)
+  assert.notEqual(monitorCallIndex, -1)
+  assert.ok(resetIndex < monitorCallIndex, 'リセットは monitor 呼び出しより前でなければならない（漏れ防止）')
+  assert.ok(resetIndex > loopOpenBraceIndex && resetIndex < loopEndIndex, 'リセットはループ内でなければならない')
+})
+
+test('一過性 reason 分岐（head-moved / checks-not-green / merge-failed）は分岐条件のリテラルのみを roundTimeoutExecReason へ代入する（#365）', () => {
+  // エージェント自己申告の自由テキスト（execSummaryText）を代入しないことを構造的に固定する
+  // （A03 インジェクション対策・分類入力への未検証文字列混入防止）。
+  const branchStart = driverPart.indexOf("execReason === 'head-moved' || execReason === 'checks-not-green' || execReason === 'merge-failed'")
+  assert.notEqual(branchStart, -1, '一過性 reason 分岐が見つからない（構造変更時は本テストも更新すること）')
+  const nextBranchIndex = driverPart.indexOf('} else {', branchStart)
+  assert.notEqual(nextBranchIndex, -1)
+  const branchBody = driverPart.slice(branchStart, nextBranchIndex)
+  assert.match(branchBody, /roundTimeoutExecReason = execReason\b/, 'リテラル execReason の代入が見つからない')
+  assert.doesNotMatch(branchBody, /roundTimeoutExecReason = execSummaryText/, '自由テキストを代入してはならない')
+})
+
 test('救済 timeout フラグが終端 status の blocked 分類に配線されている', () => {
   const idx = driverPart.indexOf('const terminalStatus =')
   assert.notEqual(idx, -1, '終端 status の判定が見つからない（構造変更時は本テストも更新すること）')
@@ -310,8 +390,10 @@ test('救済 timeout フラグが終端 status の blocked 分類に配線され
   assert.match(expr, /'blocked'/)
 })
 
-test('救済 pending / active / 品質ブロックフラグは while ループの外で 1 回だけ宣言される', () => {
-  for (const name of ['rescueRoundPending', 'rescueRoundActive', 'rescueTimeoutQualityBlock']) {
+test('救済 pending / active / 品質ブロックフラグ / timeout 出所は while ループの外で 1 回だけ宣言される', () => {
+  // roundTimeoutExecReason は宣言をループ外で 1 回だけ行い、代入（リセット・一過性 reason 分岐の
+  // 3 箇所）は複数箇所に散らばる契約のため、ここでは宣言のみを単一性チェックの対象に加える。
+  for (const name of ['rescueRoundPending', 'rescueRoundActive', 'rescueTimeoutQualityBlock', 'roundTimeoutExecReason']) {
     const declarations = driverPart.match(new RegExp(`let ${name}\\b`, 'g')) ?? []
     assert.equal(declarations.length, 1, `${name} の宣言は 1 か所でなければならない`)
     const declIndex = driverPart.indexOf(`let ${name}`)
@@ -320,19 +402,26 @@ test('救済 pending / active / 品質ブロックフラグは while ループ�
 })
 
 // ---------------------------------------------------------------------------
-// 合成シナリオ（Issue #248 の本題）: 純粋関数単体では検知できない「救済ラウンド中に
-// merge-exec 由来の timeout 写像が発生する」合成経路の回帰検証。
+// 合成シナリオ: 純粋関数単体では検知できない「救済ラウンド中に merge-exec 由来の timeout 写像が
+// 発生する」合成経路の回帰検証。
 // 模擬ラウンド: rescueRoundActive = true / monitor が 'ready' を返す /
 // classifyMergeExecDispatch(reason, undefined) で lastState を 'timeout' へ写像 /
-// monitorsLeft === 0 でループ退出 / reconcileRescueRoundState(lastState, rescueRoundActive) を評価。
+// roundTimeoutExecReason にリテラル reason を代入（実装の一過性 reason 分岐と同じ配線） /
+// monitorsLeft === 0 でループ退出 /
+// reconcileRescueRoundState(lastState, rescueRoundActive, roundTimeoutExecReason) を評価。
+//
+// 契約更新（agent-cli-skills#365）: #248 時点はこのシナリオが blocked 終端になることを固定して
+// いたが、#365 でこれを halt カウント対象の failed へ反転させた（受入基準 4）。#248 が守った
+// 「判定はループ退出後の単一 choke point で 1 回だけ」という構造自体は変えていない —— 変えたのは
+// timeout の出所を区別する分類内容である。
 // ---------------------------------------------------------------------------
 
-// 実装の terminalStatus 算出式（L3977 付近）と同じ式をここで意図的に再実装し、qualityBlock が
-// 実際に 'blocked' 終端へ届くところまで検証する（配線だけでなく最終判定結果を担保するため）。
-// この複製は実装式との乖離（ドリフト）に対して無防備 —— 実装側が式を変更してもこの関数までは
-// 追随しないため、乖離検知は上の「救済 timeout フラグが終端 status の blocked 分類に配線されて
-// いる」テスト（driverPart のソース走査で rescueTimeoutQualityBlock / 'blocked' の実在を見る）が
-// 担う。両テストは相補的であり、どちらか一方だけでは今回の合成回帰（#248）を検知できない。
+// 実装の terminalStatus 算出式（choke point 付近）と同じ式をここで意図的に再実装し、qualityBlock /
+// timeoutOrigin が実際の終端 status へ届くところまで検証する（配線だけでなく最終判定結果を担保
+// するため）。この複製は実装式との乖離（ドリフト）に対して無防備 —— 実装側が式を変更してもこの
+// 関数までは追随しないため、乖離検知は上の「救済 timeout フラグが終端 status の blocked 分類に
+// 配線されている」テスト（driverPart のソース走査で rescueTimeoutQualityBlock / 'blocked' の
+// 実在を見る）が担う。両テストは相補的であり、どちらか一方だけでは合成回帰を検知できない。
 function computeTerminalStatus({ routingErrorDetected, mergedButIssueOpen, lastState, lastBlockedReason, rescueTimeoutQualityBlock }) {
   const blockedIsRecoverable = lastState === 'blocked' && lastBlockedReason === 'quality'
   return !routingErrorDetected
@@ -342,15 +431,17 @@ function computeTerminalStatus({ routingErrorDetected, mergedButIssueOpen, lastS
 }
 
 for (const reason of ['head-moved', 'checks-not-green', 'merge-failed']) {
-  test(`合成シナリオ: 救済ラウンド中の merge-exec reason '${reason}' 写像は blocked 終端になる`, () => {
+  test(`合成シナリオ: 救済ラウンド中の merge-exec reason '${reason}' 写像は failed 終端になる（受入基準 4・halt カウント対象）`, () => {
     // monitor は 'ready' を返した想定（監視自体は成立したが、merge-exec が一過性理由でマージを
     // 見送った）。classifyMergeExecDispatch が lastState を 'timeout' へ上書きする。
     const dispatched = classifyMergeExecDispatch(reason, undefined)
     assert.equal(dispatched.lastState, 'timeout')
-    // 救済ラウンド中（rescueRoundActive: true）でこの timeout を判定する。
-    const reconciled = mod.reconcileRescueRoundState(dispatched.lastState, true)
-    assert.equal(reconciled.terminate, true)
-    assert.equal(reconciled.qualityBlock, true)
+    // 救済ラウンド中（rescueRoundActive: true）で、この timeout の出所（roundTimeoutExecReason）
+    // を reason（リテラル）として判定する。
+    const reconciled = mod.reconcileRescueRoundState(dispatched.lastState, true, reason)
+    assert.equal(reconciled.terminate, false, '#365: merge-exec 由来は品質ブロックへ終端させない')
+    assert.equal(reconciled.qualityBlock, false, '#365: qualityBlock を立てると halt カウントが迂回される')
+    assert.equal(reconciled.timeoutOrigin, 'merge-exec')
     const terminalStatus = computeTerminalStatus({
       routingErrorDetected: false,
       mergedButIssueOpen: false,
@@ -358,17 +449,19 @@ for (const reason of ['head-moved', 'checks-not-green', 'merge-failed']) {
       lastBlockedReason: dispatched.lastBlockedReason,
       rescueTimeoutQualityBlock: reconciled.qualityBlock,
     })
-    assert.equal(terminalStatus, 'blocked', 'monitor 直後消費の旧実装ではここが failed に化けていた（#248 の P1）')
+    assert.equal(terminalStatus, 'failed', '#248 時点の実装ではここが blocked に化け、halt 防御を迂回していた（#365 の P1）')
   })
 
-  test(`対称ケース: 救済ラウンド外での merge-exec reason '${reason}' 写像は failed のまま`, () => {
+  test(`対称ケース: 救済ラウンド外での merge-exec reason '${reason}' 写像は failed のまま（パリティ確認）`, () => {
     const dispatched = classifyMergeExecDispatch(reason, undefined)
     assert.equal(dispatched.lastState, 'timeout')
     // 救済ラウンド外（rescueRoundActive: false）では品質ブロックへ写像してはならない
-    // （実際の一過性失敗を隠さないため）。
-    const reconciled = mod.reconcileRescueRoundState(dispatched.lastState, false)
+    // （実際の一過性失敗を隠さないため）。#365 の救済ラウンド内 merge-exec 由来判定と結果が
+    // 一致すること自体が「新しい厳格化ではなくパリティである」という設計根拠の裏付けになる。
+    const reconciled = mod.reconcileRescueRoundState(dispatched.lastState, false, reason)
     assert.equal(reconciled.terminate, false)
     assert.equal(reconciled.qualityBlock, false)
+    assert.equal(reconciled.timeoutOrigin, 'none')
     const terminalStatus = computeTerminalStatus({
       routingErrorDetected: false,
       mergedButIssueOpen: false,
@@ -377,5 +470,110 @@ for (const reason of ['head-moved', 'checks-not-green', 'merge-failed']) {
       rescueTimeoutQualityBlock: reconciled.qualityBlock,
     })
     assert.equal(terminalStatus, 'failed')
+  })
+}
+
+test('負のコントロール: 救済ラウンド中・monitor 由来の timeout（reason 空）は blocked 終端のまま維持される（rust-ai-library#681 / #246 の回帰防止）', () => {
+  // #365 は merge-exec 由来だけを failed へ倒す変更であり、monitor 自身が観測に失敗した
+  // ケースまで一律 failed にすると rust-ai-library#681 / #246 が固定した挙動が壊れる。
+  const reconciled = mod.reconcileRescueRoundState('timeout', true, '')
+  assert.equal(reconciled.terminate, true)
+  assert.equal(reconciled.qualityBlock, true)
+  assert.equal(reconciled.timeoutOrigin, 'monitor')
+  const terminalStatus = computeTerminalStatus({
+    routingErrorDetected: false,
+    mergedButIssueOpen: false,
+    lastState: 'timeout',
+    lastBlockedReason: undefined,
+    rescueTimeoutQualityBlock: reconciled.qualityBlock,
+  })
+  assert.equal(terminalStatus, 'blocked', '救済ラウンドごと削除する過剰修正でもこのテストは緑になり得るため、上の merge-exec 系テストと対で維持する')
+})
+
+// ---------------------------------------------------------------------------
+// 片側波括弧混入時の境界不変性（Issue #336 受け入れ条件 1・2）
+//
+// 上流 Fandhe-AI/brain-training-app #81 の codex-review 指摘: 旧実装は文字列・コメント・
+// テンプレートリテラルの区別なくすべての `{`/`}` をカウントしていたため、対象ループ（テンプレート
+// リテラル・日本語コメントを多用する）に片側だけの波括弧を含む文字列・コメントが 1 行入るだけで
+// loopEndIndex が実体と乖離し得た。
+//
+// マーカー方式では境界計算が波括弧の対応付けを一切行わないため、この乖離は原理的に起きない。
+// それでもフィクスチャを残すのは、将来この境界計算が波括弧カウントへ戻された場合に**必ず落ちる**
+// ようにするためである（各フィクスチャは波括弧の収支が片側に偏っており、深さを数える実装では
+// 結果が必ずずれる）。テストの teeth はここにある。
+// ---------------------------------------------------------------------------
+
+test('境界計算に依存しない不変条件: 監視ループの閉じ括弧はインデント2の行頭にある', () => {
+  assert.equal(driverPart.slice(loopEndIndex - 3, loopEndIndex + 1), '\n  }')
+})
+
+// 注入位置はループ本体内でなければならない。裸の indexOf('monitorsLeft--') はループより前の
+// 出現に当たり得てオフセット計算が非自明な理由で狂うため、fromIndex 付きで探す
+// （293〜299 行の構造アサーションと同じ探索パターン）。
+const MONITORS_LEFT_DECR = 'monitorsLeft--'
+const braceInjectionPos = driverPart.indexOf(MONITORS_LEFT_DECR, loopOpenBraceIndex) + MONITORS_LEFT_DECR.length
+assert.ok(
+  braceInjectionPos > loopOpenBraceIndex && braceInjectionPos < loopEndIndex,
+  '注入位置はループ本体内でなければならない',
+)
+
+// 4 キャリア（行コメント・ブロックコメント・シングルクォート文字列・テンプレートリテラル）×
+// 2 フィクスチャ（正味 } が 1 個多い / 正味 { が 1 個多い）。`{` と `}` を両方入れて相殺すると
+// naive 走査も偶然一致してしまい負のコントロールが無意味化するため、各キャリアは片側のみを含む。
+// 波括弧以外の典型的な lexer トラップ（コメント内アポストロフィ・ブロックコメント内の裸クォート・
+// テンプレートの `${...}` ネスト）も同梱する。
+const BRACE_INJECTION_CARRIERS = [
+  {
+    name: '行コメント',
+    a: "\n      // don't crash on apostrophe; 片側の閉じ括弧のみ }\n",
+    b: '\n      // 片側の開き括弧のみ {\n',
+  },
+  {
+    name: 'ブロックコメント',
+    a: '\n      /* ブロックコメント内の裸のクォート " と閉じ括弧のみ } */\n',
+    b: '\n      /* ブロックコメント内の裸のクォート " と開き括弧のみ { */\n',
+  },
+  {
+    name: 'シングルクォート文字列',
+    a: "\n      const _injStr = '}' // 文字列キャリア\n",
+    b: "\n      const _injStr = '{' // 文字列キャリア\n",
+  },
+  {
+    name: 'テンプレートリテラル',
+    a: '\n      const _injTpl = `${JSON.stringify({ a: 1 })} と文字列としての }`\n',
+    b: '\n      const _injTpl = `${JSON.stringify({ a: 1 })} と文字列としての {`\n',
+  },
+]
+
+/**
+ * 変異後のソースに対して、この test ファイルが本番で使うのと同じ手順で境界を求め直す。
+ * 実装が波括弧カウントへ戻された場合にここが必ずずれるよう、フィクスチャは波括弧の収支を
+ * 片側へ偏らせる。
+ */
+function locateLoopEnd(text) {
+  const endMarkerIndex = text.indexOf(LOOP_END_MARKER)
+  assert.notEqual(endMarkerIndex, -1, '変異後も終了マーカーは残っていなければならない')
+  return text.lastIndexOf('}', endMarkerIndex)
+}
+
+function assertBraceInjectionInvariant(injected) {
+  const braceDelta = injected.split('{').length - injected.split('}').length
+  assert.notEqual(braceDelta, 0, '注入文字列は片側の波括弧のみを含み、相殺してはならない（波括弧カウント実装への退行を必ず検出するため）')
+  const mutated = driverPart.slice(0, braceInjectionPos) + injected + driverPart.slice(braceInjectionPos)
+  const got = locateLoopEnd(mutated)
+  // (a) 正: 挿入長ぶんだけずれた「同じ閉じ括弧」を指す。
+  assert.equal(got, loopEndIndex + injected.length, '境界は挿入長ぶんだけずれた同じ閉じ括弧を指さなければならない')
+  // (b) 境界計算に依存しない錨: 変異後の結果もインデント 2 の閉じ括弧行に着地する。
+  assert.equal(mutated.slice(got - 3, got + 1), '\n  }', '変異後もインデント2の閉じ括弧行に着地しなければならない')
+}
+
+for (const carrier of BRACE_INJECTION_CARRIERS) {
+  test(`片側波括弧の混入（${carrier.name}・正味 } が1個多い）でも境界判定は不変`, () => {
+    assertBraceInjectionInvariant(carrier.a)
+  })
+
+  test(`片側波括弧の混入（${carrier.name}・正味 { が1個多い）でも境界判定は不変`, () => {
+    assertBraceInjectionInvariant(carrier.b)
   })
 }
