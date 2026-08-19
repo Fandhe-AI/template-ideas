@@ -24,8 +24,9 @@ CI リソース節約のため「push 前 review」設計を採用している�
 
 - `gh` CLI がインストールされ、認証済みであること（`gh auth status` で確認）
 - `jq` CLI がインストールされていること（`command -v jq` で確認）。「全チェックが pass に見えるのにマージが進まない場合（cancel された run の残存 check）」節の人間の診断専用コマンド (B) は `gh api --paginate --slurp` の生 JSON を外部の `jq` へパイプして平坦化・集約するため、`gh --jq` だけでは代替できない。未導入の場合はそのコマンドを実行せず（rerun もせず）`blocked` として扱う
+- `awk` CLI がインストールされていること（`command -v awk` で確認）。同節のエージェント実行可能コマンド (A) は `--jq` がページ単位にしか適用できないため、ページ跨ぎの重複を集約する際にシェル側 `awk` へ依存する。未導入の場合はそのコマンドを実行せず `UNDETERMINED`（判定不能）として扱う
 - git working tree が clean であること（`git status` で確認）
-- マージ先ブランチが CI green の状態であること（`autoMerge` 運用ではランの完了後にも確認する。後述の strict = false 前提により、古い base に対して成功したチェックのままマージされ得るため）。**この確認はマージ先ブランチへの push で CI が起動することに依存する**。push トリガの workflow が無い、または `paths` フィルタで該当 head では起動しないリポジトリでは前提確認・完了後確認のいずれも検証不能であり、`autoMerge: true` は非推奨とする。成立可否の確認手順（`defaultBranchRef` から既定ブランチを解決するプローブ）と不成立時の扱いは references/automerge-design.md の「補償策の成立確認（base CI プローブ）」節を参照
+- マージ先ブランチが CI green の状態であること（`autoMerge` 運用ではランの完了後にも確認する。後述の strict = false 前提により、古い base に対して成功したチェックのままマージされ得るため）。**この確認はマージ先ブランチへの push で CI が起動することに依存する**。push トリガの workflow が無い、または `paths` フィルタで該当 head では起動しないリポジトリでは前提確認・完了後確認のいずれも検証不能であり、`autoMerge: true` は非推奨とする。成立可否の確認手順（対象（マージ先）ブランチを検査するプローブ。`branch` 未指定時のみ既定ブランチへフォールバック）と不成立時の扱いは references/automerge-design.md の「補償策の成立確認（base CI プローブ）」節を参照
 - （`autoMerge: true` で使う場合）ベースブランチの ruleset で **required status checks の strict（マージ前の base 最新化必須 = `strict_required_status_checks_policy`）を `false` にしていること**。`true` だと 1 件マージするたびに他の open PR の base が陳腐化し、並列ラン（`parallel >= 2`）が収束しない。G0 は strict を要件にしないため `false` でも自動マージは成立する（references/automerge-design.md の「strict を G0 の要件にしない理由」節）
 - 対象リポジトリへの書き込み権限があること
 - 親イシューと子イシューが GitHub の sub-issues API で紐付いていること（紐付けは `create-issue` / `create-issue-tree` を参照）
@@ -47,7 +48,8 @@ Workflow ツールで `scriptPath` にこのスキルディレクトリ内の `s
     "parallel": "<並列度 1〜8（省略時 3）>",
     "externalChecks": "<外部チェック App と信頼済み required check context の組の配列（例: [{\"app\": \"cursor\", \"context\": \"Cursor Bugbot\"}]。使用しない場合は []。slug 文字列のみの旧形式も受理するが、context 未宣言のためクライアント側自動マージは fail-closed で停止する）>",
     "autoMerge": "<boolean。true + externalChecks 明示（確定。全 App の信頼済み context 宣言込み）でクライアント側 squash merge を実行する（opt-in。references/automerge-design.md の「クライアント側自動マージの設計」節参照）。既定 false / externalChecks 未確定時はマージ可能状態で停止し、マージは GitHub 上で人間が行うか、サーバー側 auto-merge workflow（upstream の docs/implement-issue-tree/auto-merge-sample.yml）+ branch protection に委ねる>",
-    "maxResidualWorktrees": "<残置 worktree 総数の上限（0 以上の整数。省略時 20、0 で上限なし）>"
+    "maxResidualWorktrees": "<残置 worktree 総数の上限（0 以上の整数。省略時 100、0 でこの軸のみ上限なし）>",
+    "maxResidualWorktreeBytes": "<残置 worktree ディスク使用量の上限（バイト。0 以上の整数。省略時 2147483648 ＝ 2 GiB、0 でこの軸のみ上限なし。件数軸とは独立、Issue #348）>"
   }
 }
 ```
@@ -70,7 +72,8 @@ Workflow ツールで `scriptPath` にこのスキルディレクトリ内の `s
 | `parallel` | 任意 | `3` | 並列実行数（1〜8）。`1` を指定すると実質的に直列実行になる |
 | `externalChecks` | 任意 | 未指定 | GitHub Actions 以外の外部チェック宣言の配列（最大 10 件）。要素は `{"app": "<slug>", "context": "<required check context>"}` の組で宣言する（slug は英小文字・数字・ハイフン。複数 context は `contexts` 配列。slug 文字列のみの旧形式も受理するが context 未宣言としてクライアント側自動マージは fail-closed で停止する）。**未指定と `[]` は意味が異なる** |
 | `autoMerge` | 任意 | `false` | **`true` + `externalChecks` 明示（確定。全 App の信頼済み context 宣言込み）の opt-in ランでクライアント側 squash merge を実行する**（references/automerge-design.md の「クライアント側自動マージの設計」節参照。マージは merge-exec の自己取得再検証（HEAD sha・checks・スレッド・外部チェック）+ G0（ベースブランチのサーバー側強制の実測 = required status checks の bypass 不能性（ruleset は `bypass_actors` 空。classic branch protection のみのリポジトリは非対応 — bypass 不能性の検証に必要な protection 読取が admin 権限を要求し write トークンで証明できないため `classic-unsupported` で辞退）+ strict 適用（マージ前の base 最新化必須）+ レビュースレッド解消の必須化 + 手順 3 の合格判定対象チェック context の required 化（client-only チェックの不在）+ 外部チェック App の宣言 context + App ID 組（`context` + `integration_id`）束縛の required 化 + required checks 全エントリの発行元 `integration_id` 束縛（同名 commit status 偽装の遮断。検証できなければ `issuer-unbound`）。確認できなければ `server-enforcement-missing` で `blocked` 終端）+ `--match-head-commit` + merge-verify の独立確認を経る。monitor の出力はマージ経路の入力に使われない）。既定 `false`・`externalChecks` 未確定時・信頼済み context 未宣言時（slug のみの旧形式）は従来どおりマージせず、PR はマージ可能状態の `blocked` で停止する（実装・push 前 Review・PR 作成・CI 監視・fix ループは値によらず自動で進む）。opt-in を使わない場合、auto-merge はサーバー側 workflow（upstream の `docs/implement-issue-tree/auto-merge-sample.yml`）+ branch protection への委譲、または GitHub 上での人間マージで行う（対象ブランチに branch protection を設定することを推奨）。注意: merge-guard hook 導入リポでは subagent の `gh pr merge` が deny されるため opt-in マージと hook は併用できない。boolean 以外はエラーで停止（誤記を黙って読み替えない） |
-| `maxResidualWorktrees` | 任意 | `20` | 残置 worktree 総数の上限（DoS 防止ゲート）。ラン開始時に横断スキャンで観測した worktree の**物理総数**（メイン worktree のみ除外。状態ファイル追跡済み＝使用中の worktree も数える。使用中かどうかはディスク消費を変えないため。PR #185 codex P1 第 5 ラウンド）がこの値を**超過**（`>`）していたら、ディスク枯渇を防ぐため**新規イシューの着手を停止**する（fail-closed。既に走行中のイシュー・monitoring の継続は停止しない）。dispatch ループは新規着手の直前に毎回「開始時観測 + 本ラン積み増し（`ephemeralWorktrees.length`。implement / review / pr-create / fix-routing-error の新規作成台帳）」を再評価し、本ランの積み増しで上限を超えた時点でも以降の新規着手を停止する（PR #185 codex P1）。さらに並列投入済みでまだ記録に到達していないタスク分を見込み、新規着手 1 件あたり最大 6 件（implement ×1 + review ×3 + pr-create ×1 + fix-routing-error ×1。`EPHEMERAL_KIND_MAX` テーブルから導出）、monitoring 再開 1 件あたり最大 1 件（fix-routing-error 分）を予約計上し、「実測 + 予約 + 着手候補分」が上限を超える投入を止める。**monitoring 再開自体もこの予約込み判定の対象**（ただし `item.kind === 'implement'` の再開に限る。verify-close ノードとして到達した再開は `runVerifyClose` が Merge ループへ入らず fix-routing-error を積み増さないため予約 0 で対象外。PR #185 Bugbot Medium と同じ線引き）であり、開始前に同じ projected 判定を適用して超過が見込まれる場合は当該イシューの再開をこの周回に限り defer する（恒久停止はしない。次周回・次回実行で予約解放後に再評価。pet-hub PR #1062 codex-review P1 対応。修正前は monitoring 再開自身の開始を無条件で許可しており、monitoring 項目を順次再開し続けると上限を無視して残置数を際限なく増やせた）。予約起因の超過見込みは今周回の投入見送り（defer）に留め、予約が解放されれば再開する。実測超過は従来どおり恒久停止する（PR #185 codex P1 第 2 ラウンド。ただしこの恒久停止＝`newStartSuppressed` は monitoring 再開の開始自体は妨げない設計を維持しており、上記の monitoring 再開専用 defer とは独立したゲート）。ラン開始時の横断スキャン自体が失敗した場合も、ゲート有効（`maxResidualWorktrees > 0`）なら残置総数を確認できないとみなして新規着手を停止する（fail-closed。`0` 指定時のみ観測失敗でも続行。観測失敗時は monitoring 再開専用の defer 判定も素通りし、従来どおり無条件で再開を許可する）。スキャン一覧が非空でも、独立取得したレコード総数との件数照合に不一致（転記の一部脱落の疑い）があれば同様に観測失敗として停止する（PR #185 codex P1 第 4 ラウンド）。使い捨て worktree は削除しない設計（references/recovery.md の「worktree の自動削除」節）のため、この上限超過時は `git worktree list` で確認し不要な worktree を `git worktree remove` で**手動削除**してから再実行する。`0` は「上限なし（チェック無効）」の明示オプトアウト。**負値・非整数はエラーで停止**（マージゲート入力と同じ厳格さ。誤記を黙って読み替えない） |
+| `maxResidualWorktrees` | 任意 | `100` | 残置 worktree 総数の上限（DoS 防止ゲートの件数軸。バイト軸 `maxResidualWorktreeBytes` と独立に併用され、判定は OR＝どちらか一方でも超過すれば新規着手を止める）。ラン開始時に横断スキャンで観測した worktree の**物理総数**（メイン worktree のみ除外。状態ファイル追跡済み＝使用中の worktree も数える。使用中かどうかはディスク消費を変えないため。PR #185 codex P1 第 5 ラウンド）がこの値を**超過**（`>`）していたら、ディスク枯渇を防ぐため**新規イシューの着手を停止**する（fail-closed。既に走行中のイシュー・monitoring の継続は停止しない）。dispatch ループは新規着手の直前に毎回「開始時観測 + 本ラン積み増し（`ephemeralWorktrees.length`。implement / review / pr-create / fix-routing-error の新規作成台帳）」を再評価し、本ランの積み増しで上限を超えた時点でも以降の新規着手を停止する（PR #185 codex P1。バイト軸にも同種の途中経過再評価があるが、算出方法が異なるため後述）。さらに並列投入済みでまだ記録に到達していないタスク分を見込み、新規着手 1 件あたり最大 6 件（implement ×1 + review ×3 + pr-create ×1 + fix-routing-error ×1。`EPHEMERAL_KIND_MAX` テーブルから導出）、monitoring 再開 1 件あたり最大 1 件（fix-routing-error 分）を予約計上し、「実測 + 予約 + 着手候補分」が上限を超える投入を止める。**monitoring 再開自体もこの予約込み判定の対象**（ただし `item.kind === 'implement'` の再開に限る。verify-close ノードとして到達した再開は `runVerifyClose` が Merge ループへ入らず fix-routing-error を積み増さないため予約 0 で対象外。PR #185 Bugbot Medium と同じ線引き）であり、開始前に同じ projected 判定を適用して超過が見込まれる場合は当該イシューの再開をこの周回に限り defer する（恒久停止はしない。次周回・次回実行で予約解放後に再評価。pet-hub PR #1062 codex-review P1 対応。修正前は monitoring 再開自身の開始を無条件で許可しており、monitoring 項目を順次再開し続けると上限を無視して残置数を際限なく増やせた）。予約起因の超過見込みは今周回の投入見送り（defer）に留め、予約が解放されれば再開する。実測超過は従来どおり恒久停止する（PR #185 codex P1 第 2 ラウンド。ただしこの恒久停止＝`newStartSuppressed` は monitoring 再開の開始自体は妨げない設計を維持しており、上記の monitoring 再開専用 defer とは独立したゲート）。ラン開始時の横断スキャン自体が失敗した場合も、いずれかの軸が有効（`maxResidualWorktrees > 0 || maxResidualWorktreeBytes > 0`）なら残置総数を確認できないとみなして新規着手を停止する（fail-closed。両軸とも `0` 指定時のみ観測失敗でも続行。観測失敗時（`residualObserved === false`）も monitoring 再開（`item.kind === 'implement'` の再開に限る）は fail-closed で defer する — 観測できない状態での worktree 積み増しを許す fail-open を避けるため、`monitoringResumeGateDeferred` へ理由を記録してこの周回の再開を見送る（恒久停止ではない。次周回・次回実行で再評価する））。スキャン一覧が非空でも、独立取得したレコード総数との件数照合に不一致（転記の一部脱落の疑い）があれば同様に観測失敗として停止する（PR #185 codex P1 第 4 ラウンド）。使い捨て worktree は削除しない設計（references/recovery.md の「worktree の自動削除」節）のため、この上限超過時は `git worktree list` で確認し不要な worktree を `git worktree remove` で**手動削除**してから再実行する。`0` は「この件数軸のみ上限なし（チェック無効）」の明示オプトアウト（バイト軸の fail-closed には影響しない）。**負値・非整数はエラーで停止**（マージゲート入力と同じ厳格さ。誤記を黙って読み替えない）。既定値は 100（旧既定 20 では 1 イシュー消化あたり実測 4〜6 件の積み増しで 1 ラン 3 件着手が頭打ちになったため Issue #348 で引き上げ。linked worktree は object store を共有し working tree 分のみディスク消費のため 100 件でも過大ではないが、根拠は本リポジトリ 1 件のみの実測〔≈ 3.4 MB/件〕であり、配布先ごとに追跡ファイル量が異なるため、リポジトリ非依存の絶対閾値として `maxResidualWorktreeBytes` を必ず併用する。codex-review 指摘・PR #390）。**ただし `maxResidualWorktreeBytes: 0` でバイト軸を明示オプトアウトし、かつ本引数を未指定のままにした場合はこの補強が働かないため、既定値を安全側の旧既定 `LEGACY_DEFAULT_MAX_RESIDUAL_WORKTREES`（20）へ自動的に引き下げる**（`parseMaxResidualWorktrees` の `bytesAxisDisabled` 引数。codex-review 指摘・PR #390 第 2 ラウンド: 件数軸だけを緩和した既定値を、リポジトリ非依存の絶対閾値という補強なしに残さない）。利用者が本引数へ明示的に値を指定した場合はこのフォールバックの対象外（指定値をそのまま使う） |
+| `maxResidualWorktreeBytes` | 任意 | `2147483648`（2 GiB） | 残置 worktree ディスク使用量の上限（DoS 防止ゲートのバイト軸。バイト単位。件数軸 `maxResidualWorktrees` と独立に検証・無効化でき、判定は OR）。**ラン開始時のみの観測ではない**（旧記載の訂正。codex-review 指摘・PR #390 第 2 ラウンド: 実装は当初からラン中の再評価を持っていたが本節がそれを反映していなかった）。ラン開始時に、残置パス一覧全件へ `du -sk` を実行して KiB を単純合計する観測に加え、共有 `.git` object store を除いたメイン worktree の working tree 相当サイズ（`measureMainWorktreeContentBytes`）を新規 1 worktree あたりの安全側予約 `perWorktreeByteReserve` として確定する（PR #390 codex-review P1・Cursor Bugbot High: 素の `du` 値は object store 全量を含み過大予約になるため除外する）。件数軸の「本ラン積み増し再評価」「予約計上」と同じ形で、`perWorktreeByteReserve × (台帳件数 − 直近基準確定時点の台帳件数)` の projection をラン中の新規着手・monitoring 再開の両方の直前に毎回再評価し、超過見込みで新規着手を止める（`projectResidualBytes`。基準確定時点までの積み増しは実測基準値に既に含まれているため、そこを差し引かないと二重計上になる。K8Dc 対応・PR #390）。**さらに** `perWorktreeByteReserve` は開始時に確定する下限 floor 値であり、ビルド成果物等で 1 worktree が floor を超えて成長した場合 projection だけでは過小評価し得るため、使い捨て worktree 台帳が `BYTE_REMEASURE_LEDGER_INTERVAL`（3 件）積み増されるごとに残置パス一覧＋台帳パスの合計を実際に `du` し直し（`remeasureResidualBytesIfDue`）、実測が上限を超えていれば独立に新規着手を止める。**加えて、新規着手（implement）の直前には台帳増分ゲートを介さず必ず実測し直す**（`remeasureResidualBytesNow`。台帳が 3 件増えない間も実行中 worktree はビルド成果物等で成長し得るため、台帳増分だけを契機にすると容量超過後の着手を止められない fail-open が残る — PR #390 codex-review P1 第 4 ラウンド。測定コストは「同一 dispatch 周回内は 1 回」の間引きで有界化する）。**この実測し直しは以後の projection の基準（`residualBytesAtStart`・台帳オフセット `byteBaselineLedgerCount`）を同一代入で更新する**（実測結果を上限超過の即時判定にのみ使って破棄すると、以後の判定が古い基準のまま容量超過の新規着手を許す fail-open になる。K8Dc 対応）。合計（直近の実測基準・projection・実測し直しのいずれか）が上限を**超過**していたら新規イシューの着手を停止する（fail-closed。既に走行中のイシュー・monitoring の継続は停止しない。件数軸で既に停止済みの場合は追加の抑止はせず観測値のみログへ記録する）。測定不能（`du` が 1 件でも失敗・非0終了・許可文字集合外のパス混入）は 0 で補わず観測失敗として扱い、この軸が有効なら新規着手を停止する（`countResidualWorktrees` の「検証不可」計上と同じ fail-closed の理由。実測し直しの失敗も projection へフォールバックせず新規着手を停止する。存在しないパス〔並行 cleanup による削除〕のみ 0 として許容し、`du` 自体の実エラーのみ測定失敗とする）。ラン開始時観測が失敗したまま（`residualBytesObserved === false`）の場合は、monitoring 再開の projected 判定（前述の `item.kind === 'implement'` 限定の projection）自体も件数軸と同じ fail-closed 方針で defer し、観測が回復するまでそのランの monitoring 再開全体を待機させる（観測不能のまま fix-routing-error worktree の新規作成を許すと容量を確認できないまま超過し得るため）。`0` は「このバイト軸のみ上限なし（チェック無効）」の明示オプトアウト（件数軸の fail-closed には影響しない。件数軸の既定値フォールバックについては `maxResidualWorktrees` 行を参照）。**負値・非整数はエラーで停止**。既定 2 GiB は Issue #348 の検討案 B（実バイト数上限）を採用したもので、配布先リポジトリのファイル量に依存しない絶対閾値として件数軸既定値 100 の妥当性を補強する |
 
 **`externalChecks` の 4 状態（Issue #147 → 下流 sync PR codex P0 で context 束縛へ拡張）:**
 
@@ -236,7 +239,8 @@ Implement 完了後・push 前に、worktree 隔離で独立 Review エージェ
 
 レビュー条件:
 - `git checkout --detach <branch>` でローカルブランチを detached HEAD として取得する（`origin/<branch>` は push 前のため存在しない）
-- `git diff origin/<base-branch>...HEAD` でローカル diff を確認する（`origin/<base-branch>`（remote-tracking ref）が比較基準。3 点ドットのため比較点は `merge-base(origin/<base-branch>, HEAD)` ＝ブランチの分岐点に固定され、fetch 不要・ラン中に origin が進んでも比較点は不変。解決できない場合のみ `git fetch origin <base-branch>` を 1 回試み、それでも解決できなければレビューを実施せず `state: "blocked"` / `highestSeverity: "none"` で fail-closed 終端する。`blocked` は環境要因でレビュー自体が実施不能だったことを表す専用状態で、コード指摘を表す `needs-fix` とは呼び出し元の扱いが異なり fix エージェントを起動せず即座に終端する — `needs-fix` / `critical` は使わない。無関係なコードへの修正試行で修正予算を消費させないため）
+- レビュー直前に `git fetch origin <base-branch>:refs/remotes/origin/<base-branch>` を **必ず 1 回実行**して比較基準を最新化する（ref の存在有無で分岐しない）。**保存先を明示した refspec を使う** — `git fetch origin <base-branch>` のように取得元だけを与えた形は `FETCH_HEAD` を更新するだけで `refs/remotes/origin/<base-branch>` の作成・更新を保証せず、fetch 成功後の解決に失敗して実施可能なレビューを `blocked` で落とす（Issue #361）
+- `git diff origin/<base-branch>...HEAD` でローカル diff を確認する（`origin/<base-branch>`（直前に取得し直した remote-tracking ref）が比較基準。3 点ドットのため比較点は `merge-base(origin/<base-branch>, HEAD)` ＝ブランチの分岐点に固定され、以降ラン中に origin が進んでも比較点は不変。既存 ref があっても古ければ merge-base が実際の分岐点より手前に落ち、base 側の無関係なコミットが差分へ混入するため「ref があること」を新しさの根拠にしない。fetch に失敗した場合、および fetch 後も解決できない場合はレビューを実施せず `state: "blocked"` / `highestSeverity: "none"` で fail-closed 終端する。`blocked` は環境要因でレビュー自体が実施不能だったことを表す専用状態で、コード指摘を表す `needs-fix` とは呼び出し元の扱いが異なり fix エージェントを起動せず即座に終端する — `needs-fix` / `critical` は使わない。無関係なコードへの修正試行で修正予算を消費させないため）
 - **Low（要改善）含む指摘が 1 件でも `needs-fix`**。指摘なしなら `ok`
 
 `ok` の場合は push + PR 作成（Step 4.5）を経て Merge ステップへ進む。`needs-fix` の場合は fix エージェントで**ローカルに再コミット**し再レビューする（push しない）。**Review は最大 3 回**実施し、最終回（残り 0 回）の `needs-fix` では再レビューできないため fix を行わず収束失敗とする（修正後に必ず再レビューする原則を守るため。fix は実質最大 2 回）。3 回で収束しない場合は**push も PR 作成も行わず** `blocked` として記録して次のイシューへ進む。
@@ -372,14 +376,61 @@ gh pr merge <pr-number> --squash --delete-branch --match-head-commit <検証し�
 - **検知コマンド（エージェントが実行してよいものと、人間の診断専用を明確に分ける）**:
 
 ```bash
-# (A) エージェントが実行してよい形。同名 check-run の重複「件数」のみを返し、チェック名は出力しない
-# --jq はページごとに適用されるため group_by をページ単位で行うとページ跨ぎの重複を見逃す
-# （同名チェックが 2 ページに分かれて 1 件ずつ載ると各ページの重複件数が 0 になり得る）。
-# 名前一覧をパイプへ流してシェル側（sort | uniq -d）で全ページ分を集約する
-# （(B) と異なり shell 側で集約するため --slurp は不要）
-gh api --paginate "repos/{owner}/{repo}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-  --jq '.check_runs[].name' | sort | uniq -d | wc -l
-# → 出力は整数 1 行のみ（チェック名はパイプ内で集約され出力に現れない）。1 以上なら重複あり
+# (A) エージェントが実行してよい形。取得成否を先に確定してから「件数」のみを返す。
+# gh api は HTTP エラーの JSON 本文も stdout へ出す仕様のため、パイプ直結だと認証失敗・404・
+# レート制限の出力が uniq -d にヒットせず「重複なし（0）」に化ける
+# （.claude/rules/ruleset-policy.md 手順 B と同じ罠）。
+# そのため (1) 取得を独立させて終了コードを見る (2) 出力の空判定を行う (3) 集計は shell 側で
+# 行う、の 3 段に分ける（--jq はページごとに適用されるため group_by をページ単位で行うと
+# ページ跨ぎの重複を見逃す。名前+結論の一覧をシェル側 awk で全ページ分集約する）
+if ! command -v awk >/dev/null; then
+  # awk 前提条件が未導入。集計不能なため判定不能として扱う（fetch 自体を実行しない。
+  # (B) の command -v jq ゲートと同じく前提確認を fetch より先に行う — レート制限下で
+  # 無駄な gh api 呼び出しを発生させないため）
+  echo "UNDETERMINED"
+else
+# `rows=$(gh api ...)` を独立した単純コマンドのまま実行すると、呼び出し元 shell で
+# `set -e`（errexit）が有効な場合に gh api の非ゼロ終了（認証失敗・404・レート制限等）で
+# shell がここで即終了し、次行の status=$? および UNDETERMINED 分岐へ到達できない
+# （if/then/else の条件式に置かれたコマンドは errexit の対象外という shell の仕様を利用し、
+# 代入自体を条件式へ移すことで errexit 下でも必ず失敗分岐を実行できる形にする）。
+if rows=$(gh api --paginate "repos/{owner}/{repo}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+  --jq '.check_runs[] | [.name, (.conclusion // "pending")] | @tsv' 2>/dev/null); then
+  status=0
+else
+  status=$?
+fi
+if [ "${status}" -ne 0 ] || [ -z "${rows}" ]; then
+  # 取得失敗、または check-run が 1 件も返らない。この節は「全チェックが pass に見える」状態
+  # でのみ参照するため、0 件は前提と矛盾する = 取得できていない可能性が高く、判定不能として扱う
+  echo "UNDETERMINED"
+else
+  printf '%s\n' "${rows}" | awk -F'\t' '
+    { n[$1]++
+      if ($2 == "success" || $2 == "neutral" || $2 == "skipped") { }
+      else if ($2 == "pending") pend[$1] = 1
+      else bad[$1] = 1 }
+    END { d = 0; b = 0; p = 0
+          for (k in n) if (n[k] >= 2) { d++; if (k in bad) b++; if (k in pend) p++ }
+          printf "dup=%d bad=%d pend=%d\n", d, b, p }'
+fi
+fi
+# → 出力は次の 2 形のみ（チェック名・エラー本文は出力に現れない）:
+#    `UNDETERMINED`               … 判定不能。「重複なし」ではない
+#    `dup=<D> bad=<B> pend=<P>`   … 取得成功。D = 重複した check 名の数、
+#                                     B = そのうち結論が `success` / `neutral` / `skipped`
+#                                     （いずれも required status checks 上は合格・非ブロック扱い）
+#                                     でも `pending`（未完了）でもないものを含む数（cancelled /
+#                                     failure / timed_out / action_required / startup_failure /
+#                                     stale 等、`success`・`neutral`・`skipped` を正常扱いする
+#                                     以外は全て bad へ倒す fail-closed 分類）、P = そのうち
+#                                     結論が `pending`（未完了。実際の conclusion が null で
+#                                     in-progress/queued 中）を含む数
+# → 読み方: **取得に成功したうえで** D が 0 なら重複なし。D >= 1 でも B = 0 かつ P = 0 の
+#    場合のみ「重複はすべて正常な再実行（success/neutral/skipped 同士）」と読める。B・P は排他ではなく、
+#    同じ重複名の中に bad な結論と pending な結論が両方含まれる場合は B・P 双方が 1 になる。
+#    上記 2 形（正規表現 `^UNDETERMINED$` / `^dup=[0-9]+ bad=[0-9]+ pend=[0-9]+$`）以外の
+#    出力も判定不能として扱う
 ```
 
 ```bash
@@ -408,10 +459,16 @@ gh api --paginate --slurp "repos/OWNER/REPO/commits/<sha>/check-runs?per_page=10
         | join("\n")'
 ```
 
-- **対処（前提を先に実測してからコマンドを実行する）**:
-  - 前提 1: 上記 (A) の重複件数が 1 以上であることを実測する。
-  - 前提 2: rerun 対象を一意に決めるため、(B) で重複している check 名（例: `ci/build`）を確認したうえで、その名前を発行した cancelled run を job 一覧から特定する（下記コマンド）。同名 check を発行し得る cancelled run が複数見つかり一意に絞り込めない場合は rerun せず、`blocked`（quality）として最終レポートへ回す（誤った run を rerun すると無関係な job まで再実行し、原因不明のまま状態を変える）。
-  - 上記 2 点を満たさないまま rerun しない（rerun は CI を再起動するため、「Review 通過後に CI を 1 回だけ起動する」設計に反する）。
+- **対処（前提を先に実測してからコマンドを実行する。判断・実行の主体は**ラン運用者／ホスト側**であり、monitor / merge-exec エージェントではない。(B) は人間の診断専用のため、このフロー全体がエージェント自律では完結しない）**:
+  - 前提 0（判定不能の扱い）: (A) が `UNDETERMINED` を返した、または上記 2 形以外を返した場合は**判定不能**。rerun せず `blocked`（quality）として最終レポートへ回す。判定不能を「重複なし」と読んで CI 由来を除外してはならない（認証失効・レート制限・sha 誤りが典型原因。人間が原因を確認する場合は stderr を捨てずに同じ gh api を再実行する）。
+  - 前提 1（重複と結論の実測）: (A) が `dup=<D> bad=<B> pend=<P>` を返し、D・B・P を実測する。
+    - **D >= 1 かつ P >= 1** の場合: 重複の中に `pending`（未完了）の check-run が残っている。この pending 自体が `mergeStateStatus=BLOCKED` の直接原因になり得るため、「重複はすべて正常な再実行」と断定して原因調査を別方向へ進めてはならない。rerun せず、pending の完了を待って再監視する（判断・実行の主体はラン運用者／ホスト側。原因不明のまま前提 2 の rerun フローへ進めない）。
+    - **D >= 1 かつ P = 0 かつ B >= 1** の場合のみ、前提 2（rerun 対象の一意化）へ進む。
+    - **D >= 1 かつ B = 0 かつ P = 0** の場合、重複はすべて正常な再実行（`success`/`neutral`/`skipped` 同士）由来であり「cancel された run の残存 check」ではない。rerun せず、BLOCKED の別原因（required check の context 名不一致・未解決レビュースレッド・ruleset 構成など。`.claude/rules/ruleset-policy.md` の 3 軸スイープ）へ調査を移す。
+  - 前提 2（rerun 対象の一意化）: (B) で重複している check 名を確認し、その名前を発行した cancelled run を job 一覧から特定する（下記コマンド）。
+    - cancelled run が**複数**見つかり一意に絞り込めない場合: rerun せず `blocked`（quality）として最終レポートへ回す（誤った run を rerun すると無関係な job まで再実行し、原因不明のまま状態を変える）。
+    - cancelled run が **0 件**の場合: rerun 対象が存在しない。B >= 1 の残存は cancel ではなく failure / timed_out / action_required / startup_failure / stale 等の非 cancel 由来である。この残存も cancel 残存と同じ masking を受ける点に注意する — `gh pr checks` は同名 check の最新結論のみを表示するため（前掲「原因」節参照）、より新しい success / neutral / skipped の陰に隠れた古い failure / timed_out 等は `gh pr checks` の出力に現れず、通常の可視 CI 失敗としては検知できない。監視フローの needs-fix 経路（`gh pr checks` ベースの CI 失敗検知）に任せると見逃されるため、rerun はせず `blocked`（quality）として最終レポートへ回す。原因調査が必要な場合は (A)/(B) の生の check-runs 出力（`gh pr checks` ではなく）を根拠に、当該 check-run を発行した run をラン運用者が個別に特定・対処する。cancel 起因と決めつけて `gh run rerun` しない。
+  - 上記を満たさないまま rerun しない（rerun は CI を再起動するため、「Review 通過後に CI を 1 回だけ起動する」設計に反する）。
 
 ```bash
 # cancelled な run を head sha で列挙する（conclusion=cancelled のみに絞る）
@@ -436,7 +493,7 @@ CI 失敗・外部チェック指摘・コンフリクト・未解決レビュ�
 
 **強制スレッド再走査の救済ラウンド:** merge-exec が `unresolved-threads`（未解決スレッドの「件数」だけを検出）を返し、かつスレッド内容の一覧が手元にない場合、ホストは fix を起動せず `forceThreadRescan` を立てて次ラウンドの monitor に手順 5 の強制再走査を指示する。このとき監視予算がすでに尽きていると救済ラウンドが一度も走らないため、**実行全体で 1 回だけ監視枠を延長する**（2 回目以降は延長せず残り予算で終端する。merge-exec が空一覧を返し続けても監視回数は初期予算 + 1 で有界）。
 
-延長した救済ラウンドは残り予算ゼロで走るため、その回の結果がそのまま終端になる。救済ラウンドの終端分類は、ラウンド末尾での即時判定ではなく**監視ループ退出後の単一地点で 1 回だけ**評価する。分類対象は監視エージェント自身が返した `timeout` に加え、**同一救済ラウンドの merge-exec 由来の `timeout` 写像**（`head-moved` / `checks-not-green` / `merge-failed`）も含む。旧実装はラウンド末尾（monitor 結果の直後）で救済ラウンドの判定フラグを消費していたため、同じラウンド内で merge-exec がこれらの reason を返して `lastState` を `timeout` へ上書きするケースを判定が見逃し、`failed`（halt カウント・再開対象外）に落ちていた。救済ラウンドがスレッド内容を観測できないまま `timeout` で終端した場合は、**終端 status のみ `blocked`（halt 非カウント・次回ランの monitoring 再開対象）に分類する**。救済は「未解決スレッドの内容を取り直すための追加試行」であり、観測に失敗しても「未解決スレッドが残っている」という元の品質ブロックの事実は変わらないため。`lastState` は `timeout` のまま残す（実際に観測できなかったことは終端理由の記録として正しい）。`ready` / `needs-fix` 等の有意な結果が得られた場合は通常の分岐処理へ進む。
+延長した救済ラウンドは残り予算ゼロで走るため、その回の結果がそのまま終端になる。救済ラウンドの終端分類は、ラウンド末尾での即時判定ではなく**監視ループ退出後の単一地点で 1 回だけ**評価する（`ready` / `needs-fix` 等の有意な結果が得られた場合は通常の分岐処理へ進む）。判定は `timeout` の**出所**で分岐する（Issue #365）: 監視エージェント自身が観測に失敗して返した `timeout`（=同一救済ラウンドで merge-exec の一過性 reason 写像が発生していない）のみを、**終端 status `blocked`（halt 非カウント・次回ランの monitoring 再開対象）**に分類する。救済は「未解決スレッドの内容を取り直すための追加試行」であり、観測に失敗しても「未解決スレッドが残っている」という元の品質ブロックの事実は変わらないため。`lastState` は `timeout` のまま残す（実際に観測できなかったことは終端理由の記録として正しい）。一方、**同一救済ラウンドの merge-exec 由来の `timeout` 写像**（`head-moved` / `checks-not-green` / `merge-failed`）は品質ブロックへ分類せず、既定の `failed`（halt カウント対象）へ進む。救済ラウンドの再走査自体は成立している以上、未解決スレッドが残っているとは断定できず、実体はマージ操作そのものの失敗であるため。この区別を入れる前（#248 修正直後）は出所を問わず一律 `blocked` に分類していたが、恒常的な merge 失敗（特に `merge-failed`）が halt 連続カウントに一切算入されず、同じ救済経路へ再入し続けて halt 防御を迂回する回帰があった（Issue #365 の P1）。詳細な判定表・設計根拠は `references/automerge-design.md` の「救済ラウンドの終端分類」節を参照。
 
 **対象外コメントの省略件数（Issue #133・#141）:** `outOfScopeLog` は本体 20 件 + 省略マーカー行（`（他 N 件省略）`）1 件の最大 21 件で永続化する。マーカーは配列全体で 1 行だけを使い、後続の fix ラウンド・中断再開を跨いで N を累積更新する。あわせて、対象外と申告済みの threadId 集合を `outOfScopeSeen` として状態ファイルへ保存し、再開時に復元する（省略されて `outOfScopeLog` に本文が残らなかった threadId を失うと、再開後の同一スレッド再申告が省略件数へ重複加算されるため）。
 
@@ -488,6 +545,9 @@ open のサブイシューが残っている場合、または受入基準が未
 | 実装コミットの scope にイシュー番号を置く（例: `feat` の scope に `42` を入れる） | `scope-enum` を持つリポでは commitlint が必ず落ちる。Review 3 巡を消費した後の push で初めて検出され、`--no-verify` は禁止のため回避もできない。scope はモジュール・ディレクトリ名にするか省略し、イシューの紐付けは `Refs #<N>` / `Closes #<N>` で行う |
 | P0/P1 相当・セキュリティ指摘を対象外扱いにする | fix エージェントは単独で対象外と判定して記録のみで済ませてはならない。修正するか、ユーザーまたは指摘者の承認を得るまで `blocked` として扱う（安全側ガード） |
 | 全チェックが pass に見えるので CI 起因を除外し、PR の差分を疑って調査を続ける | 同名 check-run の重複件数を実測する（Step 6 の該当分岐）。cancel された run の残存 check が BLOCKED の原因になり得る |
+| (A) の出力を検証せず `0` を「重複なし」と読む | 取得失敗・空出力・形式不一致は `UNDETERMINED`。CI 由来を除外せず `blocked`（quality）に倒す |
+| 重複の bad を cancelled / failure / timed_out のみに限定し、pending・action_required・startup_failure・stale を「正常な重複」に含める | `success`・`neutral`・`skipped`（required status checks 上は合格・非ブロック扱い）以外は正常扱いしない。pending（未完了）は別枠の `pend` で検知し、それ自体が BLOCKED の原因になり得るため rerun 対象探索へ進まず待機する |
+| `neutral`・`skipped` を bad（通常の CI 失敗）として rerun 対象探索へ進める | `neutral`・`skipped` は GitHub の required status checks 判定で合格扱いになる conclusion であり fail-closed 対象ではない。`success`・`neutral`・`skipped` の重複は正常な再実行として扱い、BLOCKED の別原因を疑う |
 | 差分と無関係なテスト失敗を確認せず flaky と決めつけて rerun する | main での同ジョブ green と差分スコープの 2 点を実測してから rerun する（下記「一斉同期・大量 PR 投入時の運用ガード」参照） |
 
 ## 一斉同期・大量 PR 投入時の運用ガード
@@ -554,4 +614,4 @@ open のサブイシューが残っている場合、または受入基準が未
 
 ## sandbox 環境での実行
 
-このスキルは sandbox 環境では実行できない。ネットワークアクセス・ファイルシステムへの書き込みが必要なため、通常の Claude Code セッションで実行すること。
+このスキルはネットワーク越しの GitHub 操作（`git fetch` / `git push` / PR 作成・マージ）を必須とする。該当コマンドはコマンド単位で sandbox 無効にして実行する。ネットワーク遮断を解除できない環境では実行できない。
