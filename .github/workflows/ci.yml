@@ -1,5 +1,5 @@
 # ベースライン CI。Fandhe-AI/actions の rust-base-ci reusable workflow を
-# SHA 固定で呼び出す薄い wrapper。
+# 可変タグ @latest で呼び出す薄い wrapper。
 #
 # 本リポジトリ（テンプレート）のルートに Cargo.toml は無い。rust-base-ci は
 # Cargo.toml 不在時に各ステップを skip して success のまま終了する自己修復方式のため、
