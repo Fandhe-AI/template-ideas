@@ -57,7 +57,7 @@ concurrency:
 
 jobs:
   update-external:
-    # Fandhe-AI/actions はタグ未公開のため main 追従の最新コミット SHA に固定する
+    # Fandhe-AI/actions は可変タグ @latest で参照する（latest は main へ自動追従）
     uses: Fandhe-AI/actions/.github/workflows/update-external.yml@latest
     permissions:
       contents: read
