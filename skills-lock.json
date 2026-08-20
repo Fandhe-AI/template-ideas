@@ -23,7 +23,7 @@
       "source": "Fandhe-AI/agent-cli-skills",
       "sourceType": "github",
       "skillPath": "skills/create-plan/SKILL.md",
-      "computedHash": "796fcd1eed2919bc65fc4ae59452f61ca7d0ad3984aac15ac28b7b6e29101f9f"
+      "computedHash": "27f476db867b57e81cf3b02c0b1c86cf5b758cf8792823fd87557928219489ed"
     },
     "create-pr": {
       "source": "Fandhe-AI/agent-cli-skills",
@@ -35,31 +35,31 @@
       "source": "Fandhe-AI/agent-cli-skills",
       "sourceType": "github",
       "skillPath": "skills/implement-issue/SKILL.md",
-      "computedHash": "03b5dacf0276812114613450b4dc86692ebe3f4d8e1439b65f70d4d4bb812453"
+      "computedHash": "4988c3e8342599c9253f5ede0a9aa2f86ed5d243c8cad9558cea16461197d85e"
     },
     "implement-issue-tree": {
       "source": "Fandhe-AI/agent-cli-skills",
       "sourceType": "github",
       "skillPath": "skills/implement-issue-tree/SKILL.md",
-      "computedHash": "b9a6cc7db8482beef2e76407d985086bf29131f2f5dcf2cc3c0cfe4d81f28f16"
+      "computedHash": "b2f43146d9570877cc61977210e89becf551fa078c2afb03811d3956b9a54f29"
     },
     "implement-review": {
       "source": "Fandhe-AI/agent-cli-skills",
       "sourceType": "github",
       "skillPath": "skills/implement-review/SKILL.md",
-      "computedHash": "f243fbe60dbb16d7e68f7797032ca4b320052552d899bd31802995175fc05ebe"
+      "computedHash": "d22455dd3961040c2ddd8eba8f8e870da945869db6e698584c96f7e5670fa1d4"
     },
     "implement-review-pr": {
       "source": "Fandhe-AI/agent-cli-skills",
       "sourceType": "github",
       "skillPath": "skills/implement-review-pr/SKILL.md",
-      "computedHash": "bc62a231c94f43e199052f400902b80ce486862c2c4d85d3ad132290e67cead9"
+      "computedHash": "30f199064e81c4e8ac27478edd2e6348047dc91c94e48d3ddce2d96a0db70562"
     },
     "update-docs": {
       "source": "Fandhe-AI/agent-cli-skills",
       "sourceType": "github",
       "skillPath": "skills/update-docs/SKILL.md",
-      "computedHash": "76074128c0f87e6476e78d486103f0c6c4fb8ba616a3da981433d3405e8fc0e6"
+      "computedHash": "d4fc52ef96ed8a4a02e497513c217950f8bb1b842686976f6996c09c40bf07b1"
     }
   }
 }
