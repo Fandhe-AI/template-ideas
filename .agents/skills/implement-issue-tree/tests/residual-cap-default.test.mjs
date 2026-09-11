@@ -190,7 +190,9 @@ test('バイト軸はラン開始時の残置 0 件でもメイン worktree 測�
   assert.doesNotMatch(source, /if \(maxResidualWorktreeBytes > 0 && residual\.paths\.length > 0\)/)
   assert.match(source, /if \(maxResidualWorktreeBytes > 0\) {/)
   assert.match(source, /mainWorktreePath \? await measureMainWorktreeContentBytes\(mainWorktreePath\)/)
-  assert.match(source, /rawPerWorktreeByteReserve = Math\.max\(mainKib \* 1024, avgResidualBytes\)/)
+  // Issue #471: 永続化済み高水位（persistedHighWaterBytes）が Math.max の第3引数に加わった
+  // （前回以前のランの実測結果を開始時見積りの下限として使う）。
+  assert.match(source, /rawPerWorktreeByteReserve = Math\.max\(mainKib \* 1024, avgResidualBytes, persistedHighWaterBytes\)/)
   // クランプ適用を確認する（Issue #348 codex-review High 対応: mainKib の過大評価で
   // 1 件目着手候補が予約のみで恒久停止する回帰を防ぐ）。
   assert.match(source, /perWorktreeByteReserve = clampPerWorktreeByteReserve\(/)
@@ -209,12 +211,12 @@ test('measureMainWorktreeContentBytes はメイン worktree 全体から .git �
   assert.match(source, /return Math\.max\(0, totalKib - gitKib\)/)
 })
 
-test('measureResidualWorktreeBytes はプロンプトへ渡す前に sanitizeWorktreePath で全パスを検証し、UNTRUSTED_POLICY を含める（codex-review P0 対応）', () => {
+test('measureResidualWorktreeBytesDetailed はプロンプトへ渡す前に sanitizeWorktreePath で全パスを検証し、UNTRUSTED_POLICY を含める（codex-review P0 対応）', () => {
   assert.match(source, /const sanitizedPaths = paths\.map\(\(p\) => sanitizeWorktreePath/)
   assert.match(source, /if \(sanitizedPaths\.some\(\(p\) => p === ''\)\) {/)
   // measureResidualWorktreeBytes のプロンプト配列に UNTRUSTED_POLICY が直接含まれることを確認する
   // （du -sk の呼び出し指示より前の行に存在する = このプロンプトの一部であることの軽量確認）。
-  const fnStart = source.indexOf('async function measureResidualWorktreeBytes(paths)')
+  const fnStart = source.indexOf('async function measureResidualWorktreeBytesDetailed(paths)')
   const fnBody = source.slice(fnStart, fnStart + 3000)
   assert.match(fnBody, /UNTRUSTED_POLICY,/)
   assert.match(fnBody, /jq -r '\.\[\]'/)
@@ -270,7 +272,12 @@ test('実測し直しは残置パス一覧＋台帳パスの合計を測定し�
   const fnEnd = source.indexOf('\nwhile (true) {', fnStart)
   const fnBody = source.slice(fnStart, fnEnd)
   assert.match(fnBody, /residualPathsAtStart, \.\.\.ephemeralWorktrees\.map\(\(e\) => e\.path\)/)
-  assert.match(fnBody, /actualBytes > maxResidualWorktreeBytes && !newStartSuppressed/)
+  // latch の設定は latchNewStartSuppressed 経由へ統一済み（弱い latch が強い latch をブロック
+  // する Bugbot Medium 指摘への対応）。上限超過時にその経路を通ることを固定する。判定変数
+  // exceededAtActualMeasurement は Issue #475 で全件測定直後へ先出しした cap latch が使う
+  // （予約更新失敗の 2 経路より前に容量超過を確定するため）。
+  assert.match(fnBody, /const exceededAtActualMeasurement = actualBytes > maxResidualWorktreeBytes/)
+  assert.match(fnBody, /if \(exceededAtActualMeasurement\) \{\n\s*latchNewStartSuppressed\(\{/)
 })
 
 // --- K8Dc 回帰: ラン中実測し直しが以後の projection の基準を更新すること（PR #390 codex-review
@@ -514,11 +521,11 @@ test('境界回帰（Issue #406）: baseline が候補予約差し引き後の�
 // 0 として扱い（missing カウント）、実エラー（du 失敗等）のみを fail-closed 対象とする
 // ことをプロンプト・スキーマの両方でソース確認する。
 
-test('measureResidualWorktreeBytes は存在しないパスを ENOENT 耐性で 0 扱いし、実エラーのみ fail-closed にする', () => {
-  const fnStart = source.indexOf('async function measureResidualWorktreeBytes(paths)')
-  const fnEnd = source.indexOf('\n\n// メイン worktree の', fnStart)
+test('measureResidualWorktreeBytesDetailed は存在しないパスを ENOENT 耐性で 0 扱いし、実エラーのみ fail-closed にする', () => {
+  const fnStart = source.indexOf('async function measureResidualWorktreeBytesDetailed(paths)')
+  const fnEnd = source.indexOf('\n\n// 合計 KiB のみを必要とする', fnStart)
   const fnBody = source.slice(fnStart, fnEnd)
-  assert.ok(fnStart >= 0 && fnEnd > fnStart, 'measureResidualWorktreeBytes の関数境界を検出できない')
+  assert.ok(fnStart >= 0 && fnEnd > fnStart, 'measureResidualWorktreeBytesDetailed の関数境界を検出できない')
   assert.match(fnBody, /\[ ! -e "\$p" \]/)
   assert.match(fnBody, /missing=\$\(\(missing\+1\)\)/)
   assert.match(fnBody, /err=\$\(\(err\+1\)\)/)
@@ -529,9 +536,9 @@ test('measureResidualWorktreeBytes は存在しないパスを ENOENT 耐性で 
   assert.match(fnBody, /Number\.isInteger\(v\?\.err\) && v\.err === 0/)
 })
 
-test('measureResidualWorktreeBytes は du の終了コードと jq の展開失敗を個別に検出する（fail-open 防止）', () => {
-  const fnStart = source.indexOf('async function measureResidualWorktreeBytes(paths)')
-  const fnEnd = source.indexOf('\n\n// メイン worktree の', fnStart)
+test('measureResidualWorktreeBytesDetailed は du の終了コードと jq の展開失敗を個別に検出する（fail-open 防止）', () => {
+  const fnStart = source.indexOf('async function measureResidualWorktreeBytesDetailed(paths)')
+  const fnEnd = source.indexOf('\n\n// 合計 KiB のみを必要とする', fnStart)
   const fnBody = source.slice(fnStart, fnEnd)
   // du | cut のパイプ直結は終了状態が cut のものになる fail-open（PR #390 codex-review P1）。
   // また `duout=$(du ...); durc=$?` の素の代入は errexit 下で失敗時に即終了し err 計上へ到達
@@ -546,8 +553,10 @@ test('measureResidualWorktreeBytes は du の終了コードと jq の展開失�
   assert.match(fnBody, /TOTAL=0 MISSING=0 ERR=1/)
 })
 
-test('ORPHAN_BYTES_SCHEMA は err を必須フィールドとして要求する', () => {
-  assert.match(source, /required: \['kib', 'err'\]/)
+test('ORPHAN_BYTES_SCHEMA は err と missing を必須フィールドとして要求する', () => {
+  // missing は平均算出（computeAveragePerWorktreeBytes）の分母補正に使うため必須
+  // （欠落を 0 とみなすと分母に存在しないパスが残り予約が過小になる。Bugbot Medium 指摘）。
+  assert.match(source, /required: \['kib', 'err', 'missing'\]/)
 })
 
 test('バイト軸は新規着手直前に台帳増分によらず実測し直す（PR #390 P1 第 4 ラウンド）', () => {
@@ -567,8 +576,9 @@ test('バイト軸は新規着手直前に台帳増分によらず実測し直�
   )
 })
 
-test('ORPHAN_BYTES_SCHEMA は missing を任意フィールドとして持ち、成否判定に使わないと明記する', () => {
+test('ORPHAN_BYTES_SCHEMA の missing は整数で、ホスト側が範囲検証したうえで平均の分母から差し引く', () => {
   assert.match(source, /missing: \{\s*type: 'integer'/)
+  assert.match(source, /v\.missing >= 0 && v\.missing <= sanitizedPaths\.length/)
 })
 
 // --- monitoring 再開の実測失敗・超過検出は remeasureResidualBytesNow の戻り値のみで行うこと
@@ -582,14 +592,19 @@ test('remeasureResidualBytesNow は全ての exit で構造化された { failed
   const fnEnd = source.indexOf('\nwhile (true) {', fnStart)
   const fnBody = source.slice(fnStart, fnEnd)
   assert.ok(fnStart >= 0 && fnEnd > fnStart, 'remeasureResidualBytesNow 本体を特定できること')
-  // ガード節（無効・未観測）の早期 return
-  assert.match(fnBody, /return \{ failed: false, exceeded: false \}/)
+  // ガード節（無効・未観測）の早期 return（Issue #475 で reserveStale フィールドを追加）。
+  assert.match(fnBody, /return \{ failed: false, exceeded: false, reserveStale: false \}/)
   // 同一周回内 2 回目以降の間引き return は直近周回の結果を返す
   assert.match(fnBody, /return lastByteRemeasureOutcome/)
-  // 測定失敗（kib === null）の return
-  assert.match(fnBody, /lastByteRemeasureOutcome = \{ failed: true, exceeded: false \}/)
-  // 測定成功時の return（超過有無を反映）
-  assert.match(fnBody, /lastByteRemeasureOutcome = \{ failed: false, exceeded: actualBytes > maxResidualWorktreeBytes \}/)
+  // 測定失敗（kib === null）の return（バイト軸そのものが未観測のため failed: true のまま）
+  assert.match(fnBody, /lastByteRemeasureOutcome = \{ failed: true, exceeded: false, reserveStale: false \}/)
+  // 測定成功時の return（超過有無は Step 1-1 で確定済みの exceededAtActualMeasurement を反映。
+  // Issue #475 で cap latch を全件測定直後へ先出ししたため、ここでは重複 latch を呼ばず
+  // reserveStale: false のみ確定する）。
+  assert.match(
+    fnBody,
+    /lastByteRemeasureOutcome = \{ failed: false, exceeded: exceededAtActualMeasurement, reserveStale: false \}/,
+  )
   // 値を返さない bare `return`（改行または `}` が直後に続く形）が本体に残っていないこと。
   // 将来ここへ bare return が再混入すると、呼び出し元の `remeasureOutcome.failed` 参照が
   // `TypeError: Cannot read properties of undefined` になり monitoring 再開ゲートが例外で落ちる。
@@ -615,10 +630,15 @@ test('実測し直しは検証不可（空パス）エントリが台帳に残�
     /const unverifiedEphemeralCount = ephemeralWorktrees\.filter\(/,
   )
   // 未検証エントリが 1 件でもあり、かつ物理一覧フォールバック（Issue #404）も失敗した場合のみ
-  // measureResidualWorktreeBytes を呼ばず kib は null（フォールバック成立時は実測を継続する）
+  // 測定を呼ばず kib は null（フォールバック成立時は実測を継続する）。測定は詳細版
+  // （kib と missing を返す）で受け、kib はそこから導出する。
   assert.match(
     fnBody,
-    /const kib = measurementFailed \? null : /,
+    /const measured = measurementFailed\n\s*\? null\n/,
+  )
+  assert.match(
+    fnBody,
+    /const kib = measured === null \? null : measured\.kib/,
   )
   // kib===null の早期 return より前で byteBaselineLedgerCount への代入が起きないこと
   // （成功時の代入 `byteBaselineLedgerCount = ephemeralWorktrees.length` は kib===null 分岐の
@@ -635,9 +655,14 @@ test('monitoring 再開ゲートは remeasureResidualBytesNow の戻り値のみ
   const blockEnd = source.indexOf('\n          const recordedByIssue = new Map()', start)
   assert.ok(blockEnd > start, 'ブロック終端（予約計上ロジックの開始）を特定できること')
   const block = source.slice(start, blockEnd)
-  // 戻り値を保持して失敗・超過の両方を判定すること
+  // 戻り値を保持して失敗・超過・予約見積り更新失敗（reserveStale）の全てを判定すること
+  // （Issue #475 codex-review P0 再指摘: reserveStale を defer 条件から外すと、古い
+  // rawPerWorktreeByteReserve のまま monitoring 再開が進み容量枯渇を許し得る）
   assert.match(block, /const remeasureOutcome = await remeasureResidualBytesNow\(\)/)
-  assert.match(block, /if \(remeasureOutcome\.failed \|\| remeasureOutcome\.exceeded\)/)
+  assert.match(
+    block,
+    /if \(remeasureOutcome\.failed \|\| remeasureOutcome\.exceeded \|\| remeasureOutcome\.reserveStale\)/,
+  )
   // 旧実装（identity 比較）が復活していないこと（バグの再発防止の核心的な回帰検出）
   assert.doesNotMatch(block, /suppressedBeforeResumeRemeasure/)
   assert.doesNotMatch(block, /newStartSuppressed !== /)
