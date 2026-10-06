@@ -144,5 +144,5 @@ upstream 由来スキル（`.agents/skills/` 配下）を改修し、上流に P
 
 ## 注意事項
 
-- Conventional Commits 形式を厳守します（`type(scope): subject`）。詳細は [`../../.claude/rules/convention.md`](../../.claude/rules/convention.md) を参照。
+- Conventional Commits 形式を厳守します（`type(scope): subject`）。詳細は [`.claude/rules/convention.md`](https://github.com/Fandhe-AI/template-ideas/blob/main/.claude/rules/convention.md) を参照。
 - 新規スキル（upstream にまだマージされていないもの）は `skills-lock.json` に `computedHash` を書き込みません。マージ後に `/sync-skills-lock` で反映します。
