@@ -1,0 +1,117 @@
+name: pages
+
+# docs サイト（site/nav.toml + Markdown）をビルドして GitHub Pages へ公開する。
+# 生成器は fandhe-frontend の docs-site（tools/docs-site-gen/FF_REV の commit に固定）。
+# deploy 部分は Fandhe-AI/actions の共通 reusable workflow に委譲する
+# （artifact 受け渡し方式の設計判断は同リポジトリの pages-deploy/README.md を参照）。
+#
+# 前提（手動操作）: Settings → Pages → Source が "GitHub Actions" であること。
+# 未設定だと build は成功し deploy だけが失敗する。有効化手順は setup-github-pages スキルの Step N4。
+#
+# サードパーティ action はすべて commit SHA 固定（コメントに tag を併記）。例外は
+# Fandhe-AI/actions の reusable workflow で、組織の運用方針により @latest を使う。
+#
+# rust-toolchain.toml はビルド（docs-site の cargo install）の入力のため paths に含める。cache key へは
+# 含めない（toolchain が変われば rustc の commit-hash がキーに入るため、それで十分）。
+#
+# nav.toml の source に site/ 以外（docs/ や README.md 等）を指定する場合は、下の paths の
+# `sgp:user-paths` 区間（begin と end の間）へ `      - "docs/**"` の形で 1 行ずつ追加する
+# （追加しないとその更新で再デプロイされない）。このファイルはスキルが管理するため、区間の外を
+# 編集するとスキルの更新（scaffold.py）が競合として止まる。区間の中身だけは更新しても保持される。
+# 区間の行は `      - "<glob>"`（glob は英数字と . _ * / - のみ・`..` 不可・20 件まで）に限る。
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "site/**"
+      - "tools/docs-site-gen/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/pages.yml"
+      # sgp:user-paths:begin（この区間は更新しても保持される）
+      - "docs/guide/**"
+      # sgp:user-paths:end
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# reusable workflow 側のトップレベル concurrency は呼び出し元に効かないため、ここで設定する。
+# Pages は deploy 中断で中途半端な公開状態になり得るため cancel-in-progress は false。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: "build: docs site (SSG + linkcheck)"
+    # template-ideas はテンプレートリポジトリのため、このファイルは派生リポジトリへそのまま複製される。
+    # 派生リポジトリでは Pages が未有効で nav.toml のブランドも template-ideas のままのため、
+    # template-ideas 自身でだけ動かす（build を飛ばすと needs で deploy も飛ぶ）。派生リポジトリで
+    # 公開する場合は setup-github-pages スキルを再実行し、この条件を外す。
+    # この行はスキル所有区間の編集のため、スキルの更新（scaffold.py）では競合として表示される。
+    if: github.repository == 'Fandhe-AI/template-ideas'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        # actions/checkout v6.0.3。submodule は不要（既定 false）。トークンを .git/config へ残さない
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain @ 4cda84d5（2026-07-16 の commit）。追跡ブランチは `stable` だが、
+        # `stable` は以後進んでおり現在の HEAD とは一致しない（tag にも該当なし）。
+        # Fandhe-AI/fandhe-backend の docs-site.yml と同一 SHA を使い、更新は両リポジトリで揃える。
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+
+      - name: Resolve rustc commit-hash
+        # cache キーへ rustc の実体を含める（stable の更新で古い toolchain のバイナリを使い続けない）
+        id: rustc
+        run: |
+          echo "hash=$(rustc -vV | sed -n 's/^commit-hash: //p')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache docs-site install
+        # 対象は cargo install の出力先のみ（bin/docs-site・cargo の台帳・依存検査の記録）。
+        # 鍵: OS + rustc + FF_REV・build-local.sh のハッシュ。前方一致の復元は使わず、完全一致でのみ復元する
+        # （別の FF_REV のインストールを復元しない）。ヒット時は build-local.sh が記録と台帳の rev を
+        # FF_REV と照合し、一致すれば cargo install を省く。
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tools/docs-site-gen/target/docs-site-install
+          # yamllint disable-line rule:line-length
+          key: docs-site-gen-${{ runner.os }}-${{ steps.rustc.outputs.hash }}-${{ hashFiles('tools/docs-site-gen/FF_REV', 'tools/docs-site-gen/build-local.sh') }}
+
+      - name: "build: install → generate → verify"
+        # ローカルと同一の入口。工程の正は build-local.sh 冒頭の工程コメント。
+        # 出力先は ${RUNNER_TEMP} 配下（リポジトリ直下を汚さない）。
+        run: bash tools/docs-site-gen/build-local.sh --out "${RUNNER_TEMP}/docs-site-dist"
+
+      - name: Upload dist artifact
+        # 汎用 upload-artifact で渡し、Pages 専用形式への変換は共通 workflow 側が担う。
+        # include-hidden-files: 既定 false だと dotfile が黙って脱落するため常時 true。
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pages-dist
+          path: ${{ runner.temp }}/docs-site-dist
+          if-no-files-found: error
+          include-hidden-files: true
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    # reusable workflow は呼び出し側が付与した以上の権限を持てないため、共通側が必要とする
+    # 2 権限をこのジョブにだけ付与する（最小権限）。
+    permissions:
+      pages: write
+      id-token: write
+    uses: Fandhe-AI/actions/.github/workflows/pages-deploy.yml@latest
+    with:
+      # upload-artifact は path 直下の内容を artifact ルートへ置くため "." を指定する
+      dist-dir: "."
+      # pages-deploy の runner-label 既定値は self-hosted。省略すると self-hosted runner の
+      # 無いリポジトリで deploy が永久に pending になるため、必ず明示する。
+      runner-label: ubuntu-latest

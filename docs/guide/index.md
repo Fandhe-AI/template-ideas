@@ -26,7 +26,7 @@ Ideas Repository の使い方を読者別に案内するナビゲーションマ
 
 1. [スキル開発ガイド](./skill-development.md) — 上流貢献フロー、`/contribute-skill` / `/sync-skills-lock` の使い方、新 upstream スキルの取り込み手順
 2. `../../.claude/rules/` — 日本語規約・フェーズ遷移ルール・Conventional Commits の共通規約
-3. [`../../CLAUDE.md`](../../CLAUDE.md) — Claude Code への指令書
+3. [`CLAUDE.md`](https://github.com/Fandhe-AI/template-ideas/blob/main/CLAUDE.md) — Claude Code への指令書
 
 ## ドキュメント一覧
 
@@ -42,9 +42,9 @@ Ideas Repository の使い方を読者別に案内するナビゲーションマ
 
 ## リポジトリ構造ドキュメント
 
-- [`../../README.md`](../../README.md) — リポジトリのトップページ
-- [`../../CLAUDE.md`](../../CLAUDE.md) — Claude Code への指令書（自動読込）
-- [`../../.claude/rules/`](../../.claude/rules/) — Claude エージェント・スキル共通ルール
+- [`README.md`](https://github.com/Fandhe-AI/template-ideas/blob/main/README.md) — リポジトリのトップページ
+- [`CLAUDE.md`](https://github.com/Fandhe-AI/template-ideas/blob/main/CLAUDE.md) — Claude Code への指令書（自動読込）
+- [`.claude/rules/`](https://github.com/Fandhe-AI/template-ideas/tree/main/.claude/rules) — Claude エージェント・スキル共通ルール
 
 ## 関連
 

@@ -1,0 +1,75 @@
+# docs サイトのナビゲーション定義。書式は references/site-format.md を参照。
+# 使える TOML は `key = "文字列"` のみ（配列・整数・bool・inline table は不可）。
+# path は / 始まり・/ 終わり。予約アセット名などの制約は references/site-format.md を参照。
+
+[site]
+title = "Ideas"
+base_path = "/template-ideas"
+# ブランド表示（ヘッダー・フッター・favicon・<html lang>）。必須 6 キー（brand・repository_url・tagline・
+# copyright・version_badge・brand_mark）は未指定だと上流の既定表示が公開されるためビルドが止まる。
+# 許容値の正は上流ガイド docs/guides/docs-site-external-repos.md（references/site-format.md から辿れる）。
+brand = "Ideas"
+# GitHub リンク先。https://github.com/<owner>/<repo> のみ。base_path もここから導出した値と一致させる
+repository_url = "https://github.com/Fandhe-AI/template-ideas"
+# フッターのタグライン。空にできない
+tagline = "アイデアのブレインストーミングからビヘイビア定義・タスク分解・ロードマップ作成までを Claude Code で体系的に管理する"
+copyright = "© 2026 Fandhe Inc."
+# ブランド横の badge。空文字で非表示
+version_badge = ""
+lang = "ja"
+# ヘッダー・favicon のマーク（英数字 1 文字 + #RRGGBB。白文字を載せるため暗めの色を選ぶ）
+brand_mark = "I"
+brand_color = "#2b6cb0"
+
+[[section]]
+title = "Home"
+index_path = "/"
+
+[[section.page]]
+title = "Home"
+source = "site/index.md"
+path = "/"
+
+[[section]]
+title = "Guide"
+index_path = "/guide/"
+
+[[section.page]]
+title = "ガイド総合目次"
+source = "docs/guide/index.md"
+path = "/guide/"
+
+[[section.page]]
+title = "はじめに"
+source = "docs/guide/getting-started.md"
+path = "/guide/getting-started/"
+
+[[section.page]]
+title = "ワークフロー全体像"
+source = "docs/guide/workflow-overview.md"
+path = "/guide/workflow-overview/"
+
+[[section.page]]
+title = "各フェーズの詳細ガイド"
+source = "docs/guide/phase-guide.md"
+path = "/guide/phase-guide/"
+
+[[section.page]]
+title = "ベストプラクティス集"
+source = "docs/guide/best-practices.md"
+path = "/guide/best-practices/"
+
+[[section.page]]
+title = "気をつけるポイント・よくある失敗"
+source = "docs/guide/tips-and-pitfalls.md"
+path = "/guide/tips-and-pitfalls/"
+
+[[section.page]]
+title = "Claude Code の効果的な活用法"
+source = "docs/guide/claude-code-usage.md"
+path = "/guide/claude-code-usage/"
+
+[[section.page]]
+title = "スキル開発ガイド"
+source = "docs/guide/skill-development.md"
+path = "/guide/skill-development/"
