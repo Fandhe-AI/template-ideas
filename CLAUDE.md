@@ -44,7 +44,7 @@ ideas/
     │   ├── phase/        # フェーズ別ビルダー (brainstorm / poc-planner / behavior / task-decomposer / roadmap)
     │   ├── research/     # 調査系 (reference-researcher / sub-investigator)
     │   └── quality/      # 品質系 (doc-reviewer / gate-checker)
-    ├── rules/            # 共通ルール (japanese / phase-gate / convention / delegation / delegation-impl / document-quality)
+    ├── rules/            # 共通ルール (japanese / phase-gate / convention / delegation / delegation-impl / document-quality / github-actions)
     ├── skills/           # ワークフロースキル (5 個) + upstream への symlink
     └── workflows/        # implement-issue-tree.js (.agents/skills/ への相対 symlink)
 ```
@@ -61,6 +61,7 @@ ideas/
 - フェーズ遷移は [`rules/phase-gate.md`](./.claude/rules/phase-gate.md) に従う
 - フェーズ作業は対象パスから委譲先を判断し各エージェントへ委譲する（[`rules/delegation.md`](./.claude/rules/delegation.md) / [`rules/delegation-impl.md`](./.claude/rules/delegation-impl.md)）
 - フェーズ文書はトレーサビリティ・テンプレ準拠・ビヘイビアのテスト可能性を満たす（[`rules/document-quality.md`](./.claude/rules/document-quality.md)）
+- `.github/workflows/` のキャッシュは効果を測ってから入れ、保存は `main` の push に限る（キャッシュ方針: [`rules/github-actions.md`](./.claude/rules/github-actions.md)）
 
 ## 委譲方針
 
