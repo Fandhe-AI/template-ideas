@@ -62,8 +62,9 @@ PR から保存したキャッシュは `refs/pull/<N>/merge` スコープに入
         key: ${{ steps.cache.outputs.cache-primary-key }}
     ```
 
-- `Swatinem/rust-cache` は `save-if: ${{ github.ref == 'refs/heads/main' }}` を付けます
-- `ci.yml` の `rust-base-ci.yml` で `cache: true` にする場合は、`cache-save: ${{ github.ref == 'refs/heads/main' }}` も渡します
+- `Swatinem/rust-cache` は `save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}` を付けます
+  （`github.ref` だけだと `main` 上の `schedule`・`workflow_dispatch` でも保存します。下の `cache-save` も同じです）
+- `ci.yml` の `rust-base-ci.yml` で `cache: true` にする場合は、`cache-save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}` も渡します
   （`cache-save` の既定は true のため、渡さないと PR でも保存します）
 - `actions/setup-node` の `cache: pnpm` のように restore と save が一体の action は、PR でも保存する点に注意します
 
