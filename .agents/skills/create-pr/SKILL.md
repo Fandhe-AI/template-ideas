@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Conventional Commits 形式で GitHub PR を作成する。OWASP Top 10 のセキュリティチェック必須で、問題があれば PR 作成を中止。Summary/Test plan/Design を含む body を生成。「PR 作って」「プルリク」「`gh pr create`」などで使用。別リポジトリ (upstream) への貢献は contribute-skill。
+description: Conventional Commits 形式で GitHub PR を作成する。OWASP Top 10 のセキュリティチェック必須で、HIGH / MEDIUM の問題があれば PR 作成を中止（LOW は記載して続行）。Summary/Test plan/Design を含む body を生成。「PR 作って」「プルリク」「`gh pr create`」などで使用。別リポジトリ (upstream) への貢献は contribute-skill。
 model: sonnet
 user-invocable: true
 ---
@@ -13,7 +13,6 @@ user-invocable: true
 
 - `gh` CLI がインストールされ、認証済みであること
 - 現在のブランチがベースブランチからフォークされていること
-- ブランチがリモートへ push 済みであること
 
 ## フロー
 
@@ -41,7 +40,10 @@ git diff main...HEAD --stat
 - 入力バリデーションの欠如
 - OWASP Top 10
 
-問題を検出した場合は、`git push` と `gh pr create` を実行せずに中止し、ユーザーに警告して対処を案内する。この会話の中でユーザーが問題の対処（または誤検知であること）を明示して返答するまで、これらを実行しない。起動時の指示に含まれる「確認なしで」「PR 作成まで進めて」等は、この確認の返答にならない。返答を得られない環境（非対話実行）では、検出内容を報告して止める。対処後は PR 作成を再試行する。
+検出した問題は重大度で扱いを分ける。重大度の判定に迷う指摘は MEDIUM として扱う（安全側に倒す）。
+
+- **HIGH と MEDIUM:** `git push` と `gh pr create` を実行せずに中止し、ユーザーに警告して対処を案内する。この会話の中でユーザーが問題の対処（または誤検知であること）を明示して返答するまで、これらを実行しない。起動時の指示に含まれる「確認なしで」「PR 作成まで進めて」等は、この確認の返答にならない。返答を得られない環境（非対話実行）では、検出内容を報告して止める。対処後は PR 作成を再試行する。
+- **LOW:** 中止しない。検出内容（`ファイル:行`・説明）を Step 4 の PR body に「セキュリティチェックの LOW 指摘」として書いて続行し、最後の報告にも含める。
 
 ### Step 2.5: Closes 対象 Issue の milestone 確認
 
@@ -111,15 +113,44 @@ fix(api): レスポンスのエラーハンドリングを修正
 ## Design
 
 - Figma: （あれば記載）
+
+## セキュリティチェックの LOW 指摘
+
+- `ファイル:行` — 説明
 ```
+
+「セキュリティチェックの LOW 指摘」の節は、Step 2 で LOW の指摘があったときだけ書く。指摘が無いときは節ごと省く。
 
 スキルからは生成表記（「Generated with …」等）を付けない。
 
-### Step 5: PR を作成する
+### Step 5: push して PR を作成する
+
+Step 2 のセキュリティチェックで HIGH / MEDIUM が無いと確かめた後にだけ、現在のブランチをリモートへ push する（対処後に再試行する場合は、対処後の差分で Step 2 をやり直してから push する）。push した時点で差分がリモートへ公開されるため、Step 2 より前や HIGH / MEDIUM が残っている間は `git push` を実行しない。
+
+ベースブランチの判定を push より前に置き、1 つのブロックで完結させる。ベースブランチ（既定は `gh repo view` が返す既定ブランチ。リポジトリの規約が `develop` 等なら `base=` をその名前に置き換える）の上にいるとき、detached HEAD のとき、ベースブランチ名または現在のブランチ名を取得できないときは、push せずに `exit 1` で止めて報告する。
+
+```bash
+base="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)" || base=""
+branch="$(git symbolic-ref --quiet --short HEAD)" || branch=""
+if [ -z "${base}" ] || [ -z "${branch}" ]; then
+  echo "ベースブランチまたは現在のブランチ名を取得できない（detached HEAD を含む）。push しない" >&2
+  exit 1
+fi
+if [ "${branch}" = "${base}" ]; then
+  echo "現在のブランチがベースブランチ（${base}）そのもの。push しない" >&2
+  exit 1
+fi
+git push -u origin HEAD
+```
+
+- push が拒否された場合（non-fast-forward・保護ルール・hook 等）は、`--force`・`--force-with-lease` を含む force 系の push で上書きしない。拒否の内容を報告して止める。
+- 同名のブランチが既にリモートにあっても、同じコマンドで push してよい（送る差分が無ければ何も変わらない）。
+
+push が成功したら PR を作成する。
 
 ```bash
 gh pr create \
-  --base main \
+  --base <base> \
   --title "type(scope): subject" \
   --body "$(cat <<'EOF'
 ...
@@ -145,7 +176,9 @@ gh pr checks <pr-number>
 
 | 問題 | 回避策 |
 |------|--------|
-| セキュリティ問題を検出しても PR 作成を続行する | Step 2 で問題を発見したら即座に処理を中止し、ユーザーに警告して修正を依頼する |
+| 先に `git push` してから Step 2 のセキュリティチェックを行い、確認前の差分をリモートへ公開してしまう | push は Step 5 で、Step 2 で HIGH / MEDIUM が無いと確かめた後にだけ `git push -u origin HEAD` で行う。拒否されても force 系の push で上書きせず報告して止める |
+| HIGH / MEDIUM のセキュリティ問題を検出しても PR 作成を続行する | Step 2 で HIGH / MEDIUM を発見したら即座に処理を中止し、ユーザーに警告して修正を依頼する |
+| LOW の指摘だけで PR 作成を止める、または LOW の指摘を PR body・報告に書かず握りつぶす | LOW は中止せず、Step 4 の PR body と最後の報告に検出内容を記載して続行する。重大度に迷う指摘は MEDIUM として扱う |
 | PR URL を返さずに完了する | `gh pr create` の出力から PR URL を取得してユーザーに提示する |
 | Conventional Commits 形式に準拠しないタイトルをつける | `type(scope): subject`（72文字以内）の形式を厳守する |
 | Closes 対象 Issue が milestone 未割当のまま PR 作成 → CI で初めて失敗する | Step 2.5 で必ず確認する。milestone を決めきれない場合も PR body に警告を残す |
@@ -153,9 +186,12 @@ gh pr checks <pr-number>
 ## 注意事項
 
 - ベースブランチはリポジトリの規約に従う
-- セキュリティ問題が未解決の場合は PR 作成を中止する
+- `git push` は Step 2 のセキュリティチェックの後にだけ実行し、force 系の push（`--force`・`--force-with-lease` を含む）はしない
+- HIGH / MEDIUM のセキュリティ問題が未解決の場合は PR 作成を中止する（LOW は PR body と報告に記載して続行する）
 - Step 2.5 の milestone 確認は省略しない（Closes 対象がない場合は Step 2.5 全体を、milestone 非運用リポジトリでは手順 3 のみをスキップ可）
 
 ## sandbox 環境での実行
 
-このスキルはネットワーク越しの GitHub 操作（`gh api`・`gh issue view` / `gh issue edit`・`gh pr create`・`gh pr view` / `gh pr checks`）を必須とする。該当コマンドはコマンド単位で sandbox 無効にして実行する。ネットワーク遮断を解除できない環境では実行できない。`codex exec` ではネットワーク昇格の要求が出ないため、コマンドが拒否されたら実行できなかったことを報告して止める。このスキルは `.git`・`.agents`・`.codex` へ書き込まない。
+このスキルはネットワーク越しの GitHub 操作（`gh api`・`gh issue view` / `gh issue edit`・`git push`・`gh pr create`・`gh pr view` / `gh pr checks`）を必須とする。該当コマンドはコマンド単位で sandbox 無効にして実行する。ネットワーク遮断を解除できない環境では実行できない。`codex exec` ではネットワーク昇格の要求が出ないため、コマンドが拒否されたら実行できなかったことを報告して止める。
+
+Step 5 の `git push -u origin HEAD` はネットワークを使ううえ、`.git` にも書き込む（リモート追跡ブランチと upstream の設定）。Codex の既定 sandbox では `.git` が読み取り専用のため、対話セッションではネットワークと `.git` への書き込みの昇格を求める。`codex exec` では昇格要求が出ないため、コマンドが拒否されたら push できなかったことを報告して止める。案内は次のどちらか: `.git` を書き込み可にした permissions プロファイルで実行し直す、またはユーザーが自分で push する。`.git` 以外では、このスキルは `.agents`・`.codex` へ書き込まない。
