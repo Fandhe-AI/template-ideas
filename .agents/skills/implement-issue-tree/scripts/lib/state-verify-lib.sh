@@ -10,8 +10,10 @@
 #       変数に持ち、以降の jq はその内容へ流す = 1 回の呼び出しの中で同じ版を見る）。書き込み側の関数（state-lib.sh の
 #       st_rewrite / st_create / ST_*_JQ）は使わない。このファイルに rm・mv・cp・ln・mktemp・ファイルへのリダイレクト書き込みは
 #       無い（tests/state-verify-script.test.mjs が静的に固定する）。
-# 出力: 封筒の payload は {entries:[{h,k}], highWaterBytes, highWaterVersion, inputSha256, keysCount, keysSha256, mode, outcome,
+# 出力: 封筒の payload は {entries:[{h,k,n}], highWaterBytes, highWaterVersion, inputSha256, keysCount, keysSha256, mode, outcome,
 #       page, pages}（キー昇順・空白なしの正規形。値は整数・64 桁 16 進・数字だけのキーと固定語彙）。
+#         entries の n = 項目の note（文字列のときだけ）の SHA-256（jq -j で出した生のバイト列のハッシュ）。note が無い・文字列でない項目は印の - （空文字は出さない。エージェントが封筒を書き写すとき空文字の欄を落として sha256 が合わなくなるため。64 桁 hex とは衝突しない）。
+#         ホストは note を読み込まない（Issue #878）ので、blocked の一括記録が「保存済みの note と同じか」を n と sha256(patch.note) の一致で判定する。
 #         outcome = ok（読めた）/ nofile（ファイルが存在しない）/ error（シンボリックリンク・存在するが読めない・JSON として不正・
 #                   .items が〔無い・null 以外で〕オブジェクトでない・高水位が〔無い・null 以外で〕非負整数の number でない・
 #                   キーが 15 桁を超える〔全キーを 1 回で検査。要求したページ以外のキーでも error〕・項目のハッシュを取れない）。
@@ -33,13 +35,17 @@
 ST_VERIFY_PAGE=100
 # 項目キー（正の整数の 10 進表記）の選別。従来のコマンドの K と同一
 ST_VERIFY_KEYS='[.items // {} | keys[] | select(test("^[1-9][0-9]*$"))]'
+# 項目のハッシュの射影: note（書き込み専用の自由文。読み込み後の判断に使わず、長いと読込エージェントの書き写し違いで照合に落ちる。
+# Issue #878）を除いてから正規形にする。ホスト（implement-issue-tree.src.js の projectStateItem）と読込側の jq も同じ射影を掛ける。
+# 項目が文字列・配列などの object でない値はそのまま。状態ファイル自体の note は変更しない（読み取り専用）
+ST_VERIFY_PROJECT='if type == "object" then del(.note) else . end'
 # 高水位の欄の値: 無い・null は 0、number はそのまま、それ以外（false・文字列等）は何も出さない（sv_uint が空を拒否して error）。
 # // 0 にしない: // は false も 0 に置き換える。tostring にしない: 文字列の "4096" が 4096 になる
 ST_VERIFY_UINT='if . == null then 0 elif type == "number" then . else empty end | tostring'
 
-# $1 = nonce、$2 = 入力の sha256、$3 = page、$4 = outcome（nofile / error）。キーも項目も無い payload の封筒を出す
+# $1 = nonce、$2 = 入力の sha256、$3 = page、$4 = outcome（nofile / error）。キーも項目も無い payload の封筒を出す。keysSha256 は空文字にせず印の - （空文字の欄は書き写しで落ちる）。ホストは nofile / error のとき keysSha256 を読まない
 sv_emit_empty() {
-  so_emit "$1" "{\"entries\":[],\"highWaterBytes\":0,\"highWaterVersion\":0,\"inputSha256\":\"$2\",\"keysCount\":0,\"keysSha256\":\"\",\"mode\":\"verify\",\"outcome\":\"$4\",\"page\":$3,\"pages\":1}"
+  so_emit "$1" "{\"entries\":[],\"highWaterBytes\":0,\"highWaterVersion\":0,\"inputSha256\":\"$2\",\"keysCount\":0,\"keysSha256\":\"-\",\"mode\":\"verify\",\"outcome\":\"$4\",\"page\":$3,\"pages\":1}"
 }
 
 # 値が 0 以上の整数（先頭ゼロ不可・15 桁以内）か
@@ -53,7 +59,7 @@ sv_uint() {
 }
 
 # $1 = ファイルの内容、$2 = キーの一覧（1 行 1 件）、$3 = 開始位置、$4 = 終了位置（含まない）、$5 = 件数。該当ページの entries
-# （カンマ区切りの {"h":…,"k":…}）を出す。戻り値: 0 / 1（キーの形・桁数・行数の不一致・項目のハッシュを取れない）。
+# （カンマ区切りの {"h":…,"k":…,"n":…}）を出す。戻り値: 0 / 1（キーの形・桁数・行数の不一致・項目のハッシュを取れない）。
 # 必ずコマンド置換（サブシェル）で呼ぶ: set -f と IFS・位置引数の変更を呼び出し元へ漏らさない。キーの一覧は here-document にしない（bash 3.2 は
 # here-document を一時ファイルで実装するため、一時ファイルを作らない契約を守れない）。キーは数字だけなので、改行だけで単語分割すれば足りる。
 # 項目の値はページの分を 1 回の jq でまとめて取る（1 件ごとに jq を起動するとファイル全体を 100 回パースし、5000 件の状態で遅い）。
@@ -61,7 +67,7 @@ sv_uint() {
 # jq -jcS --arg k "$k" '.items[$k]' の出力と同じバイト列になる（同じフラグの同じ出力器）。例外は項目そのものが文字列の場合で、-j は文字列を
 # 生のまま出す（改行を含み得る）。その項目の行は印の 1 文字 " にして（JSON の値の compact 表現が " 1 文字になることは無い）、従来どおり 1 件ずつ取る
 sv_items() {
-  local content=$1 keys=$2 start=$3 end=$4 count=$5 idx=0 k sel="" list="" vals val h out=""
+  local content=$1 keys=$2 start=$3 end=$4 count=$5 idx=0 k sel="" list="" vals val h n note want=value out=""
   set -f
   IFS='
 '
@@ -81,22 +87,37 @@ sv_items() {
   [ "${idx}" -eq "${count}" ] || return 1
   [ -n "${sel}" ] || return 0
   # jq の失敗はハッシュへ畳まない（パイプの最後が jq なので、その終了コードで止める）
-  vals=$(printf '%s' "${content}" | jq -jcS --argjson ks "[${sel}]" '$ks[] as $k | (.items[$k] | if type == "string" then "\"" else . end), "\n"' 2>/dev/null) || return 1
+  # 1 件につき 2 行: 値の行（上記）と note の行。note の行は note が文字列なら JSON 文字列（1 行）、無ければ印の - （空行は単語分割で消えるため）
+  vals=$(printf '%s' "${content}" | jq -jcS --argjson ks "[${sel}]" '$ks[] as $k | (.items[$k] | if type == "string" then "\"" else ('"${ST_VERIFY_PROJECT}"') end), "\n", (.items[$k] | if type == "object" and (.note | type) == "string" then (.note | tojson) else "-" end), "\n"' 2>/dev/null) || return 1
   # shellcheck disable=SC2086  # 意図した単語分割（キーは数字だけ）
   set -- ${list}
   # shellcheck disable=SC2086  # 意図した単語分割（1 件 1 行。空の行は出ない）
   for val in ${vals}; do
-    [ $# -gt 0 ] || return 1
-    k=$1
-    shift
-    if [ "${val}" = '"' ]; then
-      # 項目が文字列: 値は jq -jcS の出力そのまま（末尾の改行も含めて保つため、番兵 x を付けて外す）
-      val=$(printf '%s' "${content}" | jq -jcS --arg k "${k}" '.items[$k]' 2>/dev/null && printf x) || return 1
-      val=${val%x}
+    if [ "${want}" = value ]; then
+      [ $# -gt 0 ] || return 1
+      k=$1
+      shift
+      if [ "${val}" = '"' ]; then
+        # 項目が文字列: 値は jq -jcS の出力そのまま（末尾の改行も含めて保つため、番兵 x を付けて外す）
+        val=$(printf '%s' "${content}" | jq -jcS --arg k "${k}" '.items[$k]' 2>/dev/null && printf x) || return 1
+        val=${val%x}
+      fi
+      h=$(printf '%s' "${val}" | so_sha256) || return 1
+      want=note
+      continue
     fi
-    h=$(printf '%s' "${val}" | so_sha256) || return 1
-    out="${out}${out:+,}{\"h\":\"${h}\",\"k\":\"${k}\"}"
+    # note の行。JSON 文字列を生のバイト列へ戻してからハッシュする（末尾の改行を保つため番兵 x を付けて外す）
+    n="-"
+    if [ "${val}" != '-' ]; then
+      note=$(printf '%s' "${val}" | jq -j '.' 2>/dev/null && printf x) || return 1
+      note=${note%x}
+      n=$(printf '%s' "${note}" | so_sha256) || return 1
+    fi
+    out="${out}${out:+,}{\"h\":\"${h}\",\"k\":\"${k}\",\"n\":\"${n}\"}"
+    want=value
   done
+  # 値の行だけで終わった（note の行が欠けた）ものは受理しない
+  [ "${want}" = value ] || return 1
   # 行数がキーの数と合わない（jq の出力が欠けた・余った）ものは受理しない
   [ $# -eq 0 ] || return 1
   printf '%s' "${out}"

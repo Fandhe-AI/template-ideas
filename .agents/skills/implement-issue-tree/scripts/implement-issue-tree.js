@@ -727,6 +727,25 @@ return s.length>b?`${s.slice(0, b)}（省略）`:s
 }
 
 
+const av=300
+const v4=200
+function qb(v,a=av){
+if(!we(v))return v
+const b=Array.from(v)
+return b.length>a?`${b.slice(0, a - 4).join('')}（省略）`:v
+}
+function Mc(a){
+const b={ ...a}
+if(we(b.lastUnresolvedInfo))b.lastUnresolvedInfo=qb(b.lastUnresolvedInfo)
+if(Array.isArray(b.outOfScopeLog))b.outOfScopeLog=b.outOfScopeLog.map((v)=>qb(v))
+if(Array.isArray(b.lastUnresolvedComments)){
+b.lastUnresolvedComments=b.lastUnresolvedComments.map((c)=>
+c&&typeof c==='object'&& !Array.isArray(c)?{ ...c,text:qb(c.text,v4)}:c)
+}
+return b
+}
+
+
 
 let kE=''
 
@@ -2421,7 +2440,7 @@ return i
 
 
 
-const cj='7. push・PR 作成はここでは行わない。ローカルブランチにコミットを積んだら、まず git status --porcelain --untracked-files=no の出力が空であること（追跡ファイルに未コミットの変更が無いこと。未追跡ファイルは対象外）を確かめる。空でない（またはコマンドが失敗した）ときは git add -u で追跡ファイルの変更だけを加え、手順 6 と同じ規約で追加のコミットとして積む（既存コミットの amend はしない）。積めなければ変更を残したまま進み summary にその旨を書く（失敗にはしない）。続けて、返却する branch 名を控えてから git checkout --detach を実行して終了する（必須。ブランチをどの worktree からも外す。checkout したままだと、後続の Review 修正が別の worktree からこのブランチの先端を更新できない）。'
+const cj='7. push・PR 作成はここでは行わない。ローカルブランチにコミットを積んだら、まず git status --porcelain --untracked-files=no の出力が空であること（追跡ファイルに未コミットの変更が無いこと。未追跡ファイルは対象外）を確かめる。空でない（またはコマンドが失敗した）ときは git add -u で追跡ファイルの変更だけを加え、手順 6 と同じ規約で追加のコミットとして積む（既存コミットの amend はしない）。積めなければ変更を残したまま進み summary にその旨を書く（失敗にはしない）。続けて、返却する branch 名を控えてから git checkout --detach を実行して終了する（必須。ブランチをどの worktree からも外す。checkout したままだと、後続の Review 修正が別の worktree からこのブランチへ付けられない）。'
 const uS='（prNumber は PR 未作成のため返却しない。返しても 0 として扱われる）'
 const lP='不要な worktree を git worktree remove で手動削除してから再実行すること'
 const g1='ディスク枯渇防止のため以降の'+iQ+'。'
@@ -2960,24 +2979,35 @@ return a(v).replace(/\x7f/g, '\\u007f')
 const Zp=(o,k)=>Object.prototype.hasOwnProperty.call(o,k)
 const qv=(x)=>M1(x)&&x>=0
 
+
+const xC=(v)=>{
+if(v===null||typeof v!=='object'||Array.isArray(v))return v
+const{note:a, ...b}=v
+return b
+}
+
 function Ss(a,b){
 const c=b?.fileExists===true&&b.hashes?b.hashes:null
 const d={}
-const e=[]
-const f=a&&typeof a==='object'&& !Array.isArray(a)?a:{}
-for(const[k,a]of Object.entries(f)){
+const e={}
+const f=[]
+const g=a&&typeof a==='object'&& !Array.isArray(a)?a:{}
+for(const[k,a]of Object.entries(g)){
 const h=c&&Zp(c,k)?c[k]:''
-if(/^[1-9]\d*$/.test(k) && /^[0-9a-f]{64}$/.test(h) && UF(gx(a)) === h) {
-d[k]=a
+const g=xC(a)
+if(/^[1-9]\d*$/.test(k) && /^[0-9a-f]{64}$/.test(h) && UF(gx(g)) === h) {
+d[k]=g
+
+if(Zp(b.noteHashes??{},k))e[k]=b.noteHashes[k]
 }else{
-e.push(k)
+f.push(k)
 }
 }
 
 
-const g=c===null?[]:[...new Set([...Object.keys(f), ...Object.keys(c)])]
+const h=c===null?[]:[...new Set([...Object.keys(g), ...Object.keys(c)])]
 .filter((k)=> /^[1-9]\d*$/.test(k) && !Zp(d, k))
-return{adopted:d,dropped:e,unverified:g,verified:c!==null&&g.length===0&&e.length===0}
+return{adopted:d,adoptedNoteHashes:e,dropped:f,unverified:h,verified:c!==null&&h.length===0&&f.length===0}
 }
 
 
@@ -2997,7 +3027,7 @@ const cI=(r)=>r?.items!==null&&typeof r?.items==='object'&& !Array.isArray(r.ite
 
 
 const Bu=kQ(['entries','highWaterBytes','highWaterVersion','inputSha256','keysCount','keysSha256','mode','outcome','page','pages'],{
-entries:{type:'array',items:kQ(['h','k'],{h:dv,k:dv})},
+entries:{type:'array',items:kQ(['h','k','n'],{h:dv,k:dv,n:dv})},
 highWaterBytes:f7,highWaterVersion:f7,inputSha256:dv,keysCount:f7,keysSha256:dv,mode:dv,outcome:dv,page:f7,pages:f7,
 })
 
@@ -3006,7 +3036,7 @@ const iR=50
 function jV(r,a,b){
 const s=ut(r,a,UF(`${Hz}\n${b}`))
 const p=s.payload
-return s.ok&&p.mode==='verify'&&p.page===b&&['ok','nofile','error'].includes(p.outcome)&&Array.isArray(p.entries)&&M1(p.pages)&&p.pages>=1
+return s.ok&&p.mode==='verify'&&p.page===b&&['ok','nofile','error'].includes(p.outcome)&&Array.isArray(p.entries)&&p.entries.every((e)=> /^([0-9a-f]{64}|-)$/.test(e?.n)) && M1(p.pages) && p.pages >= 1
 }
 
 
@@ -3015,14 +3045,16 @@ const b=a[0]
 if(b?.outcome==='nofile')return{fileExists:false,hashes:{},keysSha256:'',keysCount:0,highWaterBytes:0,highWaterVersion:0}
 if(b?.outcome!=='ok'||a.length!==b.pages)return null
 const c={}
+const d={}
 for(const p of a){
 if(['outcome','pages','keysSha256','keysCount','highWaterBytes','highWaterVersion'].some((f)=>p[f]!==b[f]))return null
-for(const{k,h}of p.entries){
+for(const{k,h,n}of p.entries){
 if(!/^[1-9]\d*$/.test(k) || Zp(c, k)) return null
 c[k]=h
+d[k]= /^[0-9a-f]{64}$/.test(n) ? n : ''
 }
 }
-const r={fileExists:true,hashes:c,keysSha256:b.keysSha256,keysCount:b.keysCount,highWaterBytes:b.highWaterBytes,highWaterVersion:b.highWaterVersion}
+const r={fileExists:true,hashes:c,noteHashes:d,keysSha256:b.keysSha256,keysCount:b.keysCount,highWaterBytes:b.highWaterBytes,highWaterVersion:b.highWaterVersion}
 return Bh(r)?r:null
 }
 
@@ -3067,7 +3099,7 @@ r5,
 `1. ${Hz} が存在するか test -f で確認する。`,
 `2. ファイルが存在する場合:`,
 `   a. jq . ${Hz} でパースを試みる（jq の終了コードで成否を判断する）。`,
-`   b. パース成功: items フィールドを返す。ok: true, fileExisted: true。items は 5 件ずつ分けて読み、読めた分だけ返す（欠落キーはホストが再取得する。見えない値を推測で埋めない）。highWaterBytes は .perWorktreeByteReserveHighWater、highWaterVersion は .perWorktreeByteReserveHighWaterVersion の値（無ければ 0）。`,
+`   b. パース成功: items フィールドを返す。ok: true, fileExisted: true。items は 5 件ずつ分けて読み、読めた分だけ返す（欠落キーはホストが再取得する。見えない値を推測で埋めない）。各項目から note 欄は除いて返す（書き写さない。jq の map_values(del(.note)) 等。ホストは note を使わず、長い文字列の書き写し違いが照合を落とすため）。highWaterBytes は .perWorktreeByteReserveHighWater、highWaterVersion は .perWorktreeByteReserveHighWaterVersion の値（無ければ 0）。`,
 `   c. パース失敗（jq が 0 以外の終了コード）: ok: false, fileExisted: true, items: {}, highWaterBytes: 0, highWaterVersion: 0 を返す。`,
 a
 ?`3. ファイルが存在しない場合: 読み取り専用のためディレクトリもファイルも作らない。ok: true, fileExisted: false, items: {}, highWaterBytes: 0, highWaterVersion: 0 を返す。`
@@ -3099,8 +3131,7 @@ const d=await zn()
 
 if(!d||(d.fileExists===false&&b.fileExisted)||
 (d.fileExists&&(UF(gx(Object.keys(d.hashes).sort()))!==d.keysSha256||
-Object.keys(d.hashes).length!==d.keysCount||
-d.highWaterBytes!==b.highWaterBytes||d.highWaterVersion!==b.highWaterVersion))){
+Object.keys(d.hashes).length!==d.keysCount))){
 throw new Error(
 `状態ファイル（${Hz}）の内容照合が成立しなかったため停止した（新規着手 0 件）。再実行し、解消しなければ退避（mv ${Hz} ${Hz}.aside）して確認する`,
 )
@@ -3118,7 +3149,7 @@ if(!b.length)break
 const c=[]
 for(let a=0;a<b.length;a+=2){
 c.push(...await Promise.all(b.slice(a,a+ 2).map((a)=>j3(
-`状態ファイル項目の読み取り（読み取り専用）。${r5}\n次をそのまま実行し、出力 JSON を items として返す（推測で埋めない）:\njq -c --argjson k '${JSON.stringify(a)}' '.items | with_entries(select(.key as $x | $k | index($x)))' ${Hz}`,
+`状態ファイル項目の読み取り（読み取り専用）。${r5}\n次をそのまま実行し、出力 JSON を items として返す（推測で埋めない）:\njq -c --argjson k '${JSON.stringify(a)}' '.items | with_entries(select(.key as $x | $k | index($x))) | map_values(if type == "object" then del(.note) else . end)' ${Hz}`,
 {label:'state:load-fill',schema:G0,isValid:cI},
 ))))
 }
@@ -3126,21 +3157,22 @@ e={ ...e}
 c.forEach(({result:r},i)=>b[i].forEach((k)=>{if(r&&Zp(r.items,k))e[k]=r.items[k]}))
 v=Ss(e,d)
 }
-const{adopted:f,dropped:g,unverified:h,verified:i}=v
-if(g.length>0||h.length>0){
+const{adopted:f,adoptedNoteHashes:g,dropped:h,unverified:i,verified:j}=v
+if(h.length>0||i.length>0){
 log(
-`⚠️ state-unverified ${h.length} 件（再取得 2 巡後も未照合: ${h.slice(0, 20).join(', ')}）`,
+`⚠️ state-unverified ${i.length} 件（再取得 2 巡後も未照合: ${i.slice(0, 20).join(', ')}）`,
 )
 }
 
-const j=d.fileExists===true
+const k=d.fileExists===true
 return{
 items:f,
-verified:i,
-unverified:h.map(Number),
-keys:j?Object.keys(d.hashes):[],
-highWaterBytes:j?b.highWaterBytes:0,
-highWaterVersion:j?b.highWaterVersion:0,
+noteHashes:g,
+verified:j,
+unverified:i.map(Number),
+keys:k?Object.keys(d.hashes):[],
+highWaterBytes:k?d.highWaterBytes:0,
+highWaterVersion:k?d.highWaterVersion:0,
 }
 }
 
@@ -3189,7 +3221,7 @@ const o=Boolean(f||k)
 if(f&&l==='discard')kX.add(f)
 
 const p=l==='discard'&&Boolean(f)&&h&&g===''
-const q=p?Object.fromEntries(Object.entries(b).filter(([k])=>k!=='worktree')):b
+const q=Mc(p?Object.fromEntries(Object.entries(b).filter(([k])=>k!=='worktree')):b)
 
 
 const r=o
@@ -3638,19 +3670,19 @@ return''
 
 
 const aG={
-'measure-residual-bytes.sh':'dacb23c64e107c29c782f88d125103557202e680c7f0fdf796f148af17c86f1f',
-'measure-free-disk.sh':'3c43a4fe1d1f23c444fad188b9100eb71d55343a7969958fbeb6abeac17f55e5',
-'observe-pr.sh':'18638de5e3ea6785a85ba029b22816f8d0fee075f1206062c77c762038cb6310',
-'base-merge.sh':'5c7daf5f2e96cbf8b723ec9e7e8a0bf10bf8102255cff55d17041b0f3d825227',
-'pr-push.sh':'aa49f0edbddda08d0c323b66b8f45588832b40a80b729094f741a2fbdb4c51f3',
-'reply-resolve.sh':'30f173ef232fdfd24e023a7e55f89eb2e8f864a8d7c068111299aa2c8e392cf8',
-'state.sh':'c4a63557907c443ecbdd68f284c9f2b7fe6a9ea2b6a230288d3eb2ba8cbda83a',
-'merge-gate.sh':'c846024442926596175f393ff1414f822460901a4f555c1d92db74a21b705e31',
-'worktree-remove.sh':'6cc3913982d0f7829612b4f56831797581f4005be27a7481394c7df52ccf8577',
-'recover-prep.sh':'8d012867028bb5521797a6500eb1eafb8fe5e400368a8c6f830a7a709078f84b',
-'fetch-tree.sh':'42cae70a53c55406a317d3ad6015919b00c099371a62569de3697801c5dd8c8c',
-'declared-deps.sh':'5cb5f9b3c1873ae4bf086ff11aeb7b013f7069aaa8fe37d0c3017cf95f350fd6',
-'repo-scan.sh':'05e543736e7268c513ed05837b1fec209c4a02eb24d17843dcb3cb370aeb1489',
+'measure-residual-bytes.sh':'2a16707b2827938fc0e09b268cde7cdb589e7f570b480549596f71f733ac5ff8',
+'measure-free-disk.sh':'03410b21613cf32a5756e8428d6f3dd89a810f1fbfe20a320ab80f11f9c9f36a',
+'observe-pr.sh':'066d4646989edfc4be4c84f05f19ebd07bfcebc1d94e653b7d522976d944af47',
+'base-merge.sh':'b61d6498642bec02b2950c8acc192e938092aaad5742204ac8e2dbc636f98c8f',
+'pr-push.sh':'23235548e45db85714cf942efd290a82546ad05335246d898c0e7dc28ab53f79',
+'reply-resolve.sh':'24ea0f8edc99e4034279b8b10d892ff1295478c24525187e0bea688b0c89e9bc',
+'state.sh':'0815b2b68eb6012db3b23c08bf674a7d4a36ec81f2788353f424e3996496c485',
+'merge-gate.sh':'7a4b4c6d9352da72c13021c413073dd9a12717d6e153b1ac1b24bb6f9537a385',
+'worktree-remove.sh':'a17c4497164a4c65c27f49aa30e54ab8aecce3f392c7cf263e51b1e3c07fb62b',
+'recover-prep.sh':'fd44c9b48174021b18b4f7b464b9fb69b1e14fb7bf65e37bf47935d9ee431c4c',
+'fetch-tree.sh':'673e7a9f68d3d4cab93a18aeb0fc859679d3b41521826f3f6e066fc2f69dd905',
+'declared-deps.sh':'1dd1d10094fb2b21816a6af7736b9ead8e574c2d962e548c505c7594b105a322',
+'repo-scan.sh':'df713c6cf4432717a8d614c470472667e1115a36047a8b4510a7c27d914af986',
 }
 
 
@@ -4591,9 +4623,13 @@ return r.map((k)=>a[k].replace(/。$/, '')).join('。')
 }
 
 
-function o2(a,b){
+
+function o2(a,b,c){
 if(a===null||typeof a!=='object'||Array.isArray(a))return false
-return Object.keys(b).every((k)=>Zp(a,k)&&JSON.stringify(a[k])===JSON.stringify(b[k]))
+return Object.keys(b).every((k)=>{
+if(k==='note')return we(b.note)&& /^[0-9a-f]{64}$/.test(c ?? '') && UF(b.note) === c
+return Zp(a,k)&&JSON.stringify(a[k])===JSON.stringify(b[k])
+})
 }
 
 
@@ -4621,42 +4657,42 @@ return e?.ok===true
 
 
 
-async function xQ(a,b){
-const c=new Map()
-for(const e of a)c.set(Ix(e.number,'blocked batch number'),e.patch)
-const d=[]
-let e=0
-for(const[a,f]of c){
-if(o2(b?.[String(a)],f))e++
-else d.push({number:a,patch:f})
+async function xQ(a,b,c){
+const d=new Map()
+for(const e of a)d.set(Ix(e.number,'blocked batch number'),e.patch)
+const e=[]
+let f=0
+for(const[a,g]of d){
+if(o2(b?.[String(a)],g,c?.[String(a)]))f++
+else e.push({number:a,patch:g})
 }
-const f=[]
-for(let i=0;i<d.length;i+=sJ)f.push(d.slice(i,i+sJ))
-let g=0
+const g=[]
+for(let i=0;i<e.length;i+=sJ)g.push(e.slice(i,i+sJ))
 let h=0
-const i=[]
-for(const[a,b]of f.entries()){
+let i=0
+const j=[]
+for(const[a,b]of g.entries()){
 let c=false
 try{
 c=await GP(()=>NG(b,`state:update-batch:${a + 1}`))
 }catch(e){
 log(`⚠️ state:update-batch:${a + 1}: 想定外の例外（${As(e)}）`)
 }
-if(c)g+=b.length
+if(c)h+=b.length
 else{
-h++
-i.push(...b.map((c)=>c.number))
+i++
+j.push(...b.map((c)=>c.number))
 }
 }
 return{
-requested:c.size,
-unchanged:e,
-attempted:d.length,
-written:g,
-unwritten:d.length-g,
-unwrittenIssues:i.slice(0,20),
-chunks:f.length,
-failedChunks:h,
+requested:d.size,
+unchanged:f,
+attempted:e.length,
+written:h,
+unwritten:e.length-h,
+unwrittenIssues:j.slice(0,20),
+chunks:g.length,
+failedChunks:i,
 }
 }
 
@@ -5619,7 +5655,7 @@ const p=d
 ]
 :[
 `1. ${Da}push 前のローカル修正のため fetch は不要。`,
-`   git checkout --detach ${f} で detached HEAD として取得する（別 worktree で checkout 済みでも衝突しない）。`,
+`   git checkout --detach ${f} で detached HEAD として取得し、作業・コミットも detached HEAD で行う（別 worktree で checkout 済みでも衝突せず、途中で失敗してもブランチを握らない）。`,
 `   マージコンフリクトの解消が必要な場合は git fetch origin ${I$}:refs/remotes/origin/${I$} で最新化してから git merge origin/${I$} で解消する（Issue #361）`,
 `   （ローカル ${I$} でなく origin/${I$} を使う。Issue #315）。`,
 ]
@@ -5632,9 +5668,8 @@ Tv,
 :[
 `4. create-commit スキルに従いコミットする。push はしない（Review 通過後にまとめて push する）。`,
 Tv,
-`   先端更新（git branch -f・旧値なし update-ref は禁止）: 手順 1 の detach 直後に git rev-parse HEAD の値を <old> として字面で控え（シェル変数不可）、更新直前に git rev-parse refs/heads/${f} が <old> と違えば中止。git worktree list --porcelain で refs/heads/${f} を checkout 中の worktree を探す。`,
-`   あれば中止（その worktree を含め、カレントの worktree の外には一切触れない。使用中のブランチだけを動かすと、その worktree の index・作業ツリーと食い違う）。無ければ git update-ref refs/heads/${f} <HEAD の sha> <old>。`,
-`   中止・条件不成立・失敗・git rev-parse refs/heads/${f} が HEAD と不一致なら pushed: false・commitFailed: true・summary に理由と HEAD の sha。`,
+`   ブランチ ${f} の先端更新（コミット後にだけ行う。git update-ref・git branch -f は隔離 worktree のガードが拒否するので使わない）: (a) 修正後の git rev-parse HEAD の値を <new> として字面で控える（シェル変数不可）。修正コミットが無く HEAD が取得時から動いていなければ先端更新は不要で、(e) へ進む。(b) git checkout --no-guess ${f} を実行する（--no-guess は origin にだけある名前から新規ブランチを作らせないため）。git が already used by worktree 等で拒否したら、detached のまま pushed: false・commitFailed: true・summary に理由と <new> で返す。(c) git merge --ff-only <new> を実行する。(d) git rev-parse refs/heads/${f} が <new> と一致するか確かめる。(e) (b) でブランチへ付けたら、(c)(d) の成否にかかわらず直ちに git checkout --detach <new> を実行し、git rev-parse --abbrev-ref HEAD が HEAD であることを確かめる。ff できない・一致しない・detach できない場合は pushed: false・commitFailed: true・summary に理由と <new>。`,
+`   ブランチへ付いている区間は (b) から (e) の数コマンドだけにする。手順 1〜3 の出口（マージ解消不能・P0/P1 修正不能・テスト不通過）ではブランチへ付かず、detached のまま返す。`,
 `   レビュースレッドの resolve は行わない（push 前の Review ループ）。`,
 ]
 return[
@@ -6121,6 +6156,7 @@ if(V1)await wX()
 
 const{
 items:or,
+noteHashes:GZ,
 highWaterBytes:eZ,
 highWaterVersion:ac,
 verified:b0,
@@ -9593,7 +9629,7 @@ log(`monitor 再開可能な中断: ${Os(Iu)}`)
 
 
 
-const Du=await xQ(iU.filter((e)=> !j_.has(e.number)),or)
+const Du=await xQ(iU.filter((e)=> !j_.has(e.number)),or,GZ)
 if(Du.requested>0){
 log(`blocked の状態ファイル記録: 対象 ${Du.requested} 件（保存済みと同一で省略 ${Du.unchanged} 件・書き込み ${Du.written} / ${Du.attempted} 件・エージェント ${Du.chunks} 回）`)
 }

@@ -168,6 +168,10 @@ opt-in ランのクライアント側マージは、未信頼のレビュー本�
 
 詳細: [references/automerge-design.md](references/automerge-design.md)
 
+## Codex で実行する
+
+Codex には Workflow ランタイムが無いため、同梱のランナー `runner/run.mjs` が同じ生成物を Node で評価し、`agent()` を `codex exec` のエージェントで動かす。ホストの判断は Workflow 版と同じで、下の「フロー」と上の引数の意味もそのまま使える。起動は対象リポジトリのメイン worktree で `node <skillDir>/runner/run.mjs --tool codex --args <args.json>`（まず `--dry-run`）。前提・終了コード・autoMerge の前提・ガードの限界・ログの片づけは [references/runners.md](references/runners.md)、内部の詳細は [runner/README.md](runner/README.md) を参照する。OpenCode は未対応（`--tool opencode` は終了コード 3）。
+
 ## フロー
 
 ### Step 1: ツリーを取得して依存グラフ付き実行キューを構築する（Tree）
@@ -279,7 +283,7 @@ detached の worktree に fix のコミットだけが残った場合（ブラ�
    （`scope-enum` を設定したリポでは必ず落ち、Review 3 巡を消費した後の push で初めて検出される）。
    イシューとの紐付けは footer の `Refs #<N>` と PR 本文の `Closes #<N>` で行う。
    push 前 base 最新化ゲート（Step 5・Merge ループの fix）で作る base 取り込みマージコミットの subject も同じ手順で type / scope を決める（固定の `chore:` は `type-enum` / `scope-enum` を持つリポの commit-msg hook に拒否される。拒否されたら `git merge --abort` して push せず fail-closed）
-7. **push・PR 作成はここでは行わない**。ローカルブランチにコミットを積んだら、まず `git status --porcelain --untracked-files=no` の出力が空であること（追跡ファイルに未コミットの変更が無いこと。未追跡ファイルは対象外）を確かめる。空でない（またはコマンドが失敗した）ときは `git add -u` で追跡ファイルの変更だけを加え、手順 6 と同じ規約で追加のコミットとして積む（既存コミットの amend はしない。積めなければ変更を残したまま進み summary に書く。失敗にはしない）。そのあと `git checkout --detach` でブランチを worktree から外して終了し、後続の Review フェーズへ渡す（Review の fix は隔離された別 worktree からブランチ先端を更新する。自分の worktree の外へは触れられないため、ブランチを checkout 中の worktree が残っていると先端を進められず `commitFailed` で終わる）
+7. **push・PR 作成はここでは行わない**。ローカルブランチにコミットを積んだら、まず `git status --porcelain --untracked-files=no` の出力が空であること（追跡ファイルに未コミットの変更が無いこと。未追跡ファイルは対象外）を確かめる。空でない（またはコマンドが失敗した）ときは `git add -u` で追跡ファイルの変更だけを加え、手順 6 と同じ規約で追加のコミットとして積む（既存コミットの amend はしない。積めなければ変更を残したまま進み summary に書く。失敗にはしない）。そのあと `git checkout --detach` でブランチを worktree から外して終了し、後続の Review フェーズへ渡す（Review の fix は隔離された別 worktree で detached HEAD のまま作業・コミットし、コミット後にだけブランチへ `git checkout --no-guess` で付けて `git merge --ff-only` で先端を進め、直ちに detach する。ブランチを checkout 中の worktree が残っていると付けられず `commitFailed` で終わる）
 
 ```bash
 # 作業ブランチ作成例（並列時の衝突回避のためイシュー番号を含める）
